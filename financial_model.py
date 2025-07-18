@@ -6,8 +6,8 @@ from datetime import datetime, date
 
 # Configure page
 st.set_page_config(
-    page_title="SHAED Finance Dashboard - Income Statement",
-    page_icon="📊",
+    page_title="SHAED Financial Model",
+    page_icon="📈",
     layout="wide"
 )
 
@@ -541,21 +541,34 @@ def create_custom_table_with_years(categories, data_key, show_monthly=True):
                     yearly_total += value
                 
                 if data_key == "gross_margin":
-                    # For gross margin, calculate average percentage for the year
-                    yearly_avg = yearly_total / len(years_dict[year])
-                    formatted_yearly_total = format_percentage(yearly_avg)
+                    # For gross margin, calculate correct percentage: Total Gross Profit / Total Revenue for the year
+                    yearly_revenue = 0
+                    yearly_gross_profit = 0
+                    for month in years_dict[year]:
+                        revenue = st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0)
+                        gross_profit = st.session_state.model_data.get("gross_profit", {}).get(category, {}).get(month, 0)
+                        yearly_revenue += revenue
+                        yearly_gross_profit += gross_profit
+                    
+                    yearly_percentage = (yearly_gross_profit / yearly_revenue * 100) if yearly_revenue > 0 else 0
+                    formatted_yearly_total = format_percentage(yearly_percentage)
                 else:
                     formatted_yearly_total = format_number(yearly_total)
                 html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{formatted_yearly_total}</strong></td>'
         else:
             for year in sorted(years_dict.keys()):
                 if data_key == "gross_margin":
-                    # For gross margin, calculate average percentage for the year
-                    yearly_avg = sum(
-                        st.session_state.model_data[data_key].get(category, {}).get(month, 0)
+                    # For gross margin, calculate correct percentage: Total Gross Profit / Total Revenue for the year
+                    yearly_revenue = sum(
+                        st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0)
                         for month in years_dict[year]
-                    ) / len(years_dict[year])
-                    formatted_yearly_total = format_percentage(yearly_avg)
+                    )
+                    yearly_gross_profit = sum(
+                        st.session_state.model_data.get("gross_profit", {}).get(category, {}).get(month, 0)
+                        for month in years_dict[year]
+                    )
+                    yearly_percentage = (yearly_gross_profit / yearly_revenue * 100) if yearly_revenue > 0 else 0
+                    formatted_yearly_total = format_percentage(yearly_percentage)
                 else:
                     yearly_total = sum(
                         st.session_state.model_data[data_key].get(category, {}).get(month, 0)
@@ -735,8 +748,8 @@ def create_custom_total_row(total_dict, row_label, show_monthly=True):
 # Header with SHAED branding
 st.markdown("""
 <div class="main-header">
-    <h1>📊 SHAED Financial Model</h1>
-    <h2>📈 Income Statement</h2>
+    <h1>📈 SHAED Financial Model</h1>
+    <h2>Income Statement</h2>
 </div>
 """, unsafe_allow_html=True)
 
@@ -780,30 +793,9 @@ with nav_col8:
 # Add visual separator after navigation
 st.markdown("---")
 
-# Data management buttons
-st.markdown('<div class="section-header">💾 Data Management</div>', unsafe_allow_html=True)
-
-nav_col1, nav_col2 = st.columns([1, 1])
-
-with nav_col1:
-    if st.button("💾 Save Data", type="primary"):
-        if save_data(st.session_state.model_data):
-            st.success("Data saved successfully!")
-        else:
-            st.error("Failed to save data")
-
-with nav_col2:
-    if st.button("📂 Load Data"):
-        st.session_state.model_data = load_data()
-        st.success("Data loaded successfully!")
-        st.rerun()
-
-# Revenue Section
-st.markdown("**Revenue:**")
-
 # View toggle
-view_col1, view_col2 = st.columns([3, 1])
-with view_col2:
+view_col1, view_col2 = st.columns([1, 3])
+with view_col1:
     view_mode = st.selectbox(
         "View Mode:",
         ["Monthly + Yearly", "Yearly Only"],
@@ -812,17 +804,9 @@ with view_col2:
 
 show_monthly = view_mode == "Monthly + Yearly"
 
-st.markdown("---")
-
-# Period info
-if show_monthly:
-    st.info(f"**Showing {len(months)} months from Jan 2025 to Dec 2030 with yearly subtotals**")
-else:
-    st.info(f"**Showing yearly totals from 2025 to 2030**")
-
 # REVENUE SECTION
 st.markdown('<div class="section-header">💰 Revenue</div>', unsafe_allow_html=True)
-st.info("📝 Revenue will be populated from the Revenue dashboard")
+st.info("📝 Revenue will be populated from the Revenue Assumptions dashboard")
 
 # Updated revenue categories in new order
 revenue_categories = ["Subscription", "Transactional", "Implementation", "Maintenance"]
@@ -836,14 +820,14 @@ for month in months:
         for cat in revenue_categories
     )
 
-st.markdown("**Total Revenue:**")
+
 create_custom_total_row(total_revenue, "Total Revenue", show_monthly)
 
 st.markdown("---")
 
 # COST OF SALES SECTION
 st.markdown('<div class="section-header">📦 Cost of Sales</div>', unsafe_allow_html=True)
-st.info("📝 Cost of Sales will be populated from Gross Profit")
+st.info("📝 Cost of Sales will be populated from Gross Profit dashboard")
 
 # Updated cost of sales categories to match revenue
 cost_of_sales_categories = ["Subscription", "Transactional", "Implementation", "Maintenance"]
@@ -857,7 +841,7 @@ for month in months:
         for cat in cost_of_sales_categories
     )
 
-st.markdown("**Total Cost of Sales:**")
+
 create_custom_total_row(total_cost_of_sales, "Total Cost of Sales", show_monthly)
 
 st.markdown("---")
@@ -884,7 +868,7 @@ total_gross_profit = {}
 for month in months:
     total_gross_profit[month] = total_revenue[month] - total_cost_of_sales[month]
 
-st.markdown("**Total Gross Profit:**")
+
 create_custom_total_row(total_gross_profit, "Total Gross Profit", show_monthly)
 
 # Toggle for gross margin display
@@ -904,7 +888,7 @@ if show_gross_margin:
     # Store gross margin data in session state for the custom table function
     st.session_state.model_data["gross_margin"] = gross_margin_data
 
-    st.markdown("**Gross Margin %:**")
+
     create_custom_table_with_years(["Subscription", "Transactional", "Implementation", "Maintenance"], "gross_margin", show_monthly)
 
     # Calculate total gross margin
@@ -912,14 +896,14 @@ if show_gross_margin:
     for month in months:
         total_gross_margin[month] = (total_gross_profit[month] / total_revenue[month] * 100) if total_revenue[month] > 0 else 0
 
-    st.markdown("**Total Gross Margin %:**")
+
     create_custom_total_row_with_yearly_percentage(total_gross_margin, total_gross_profit, total_revenue, "Total Gross Margin %", show_monthly)
 
 st.markdown("---")
 
 # SELLING, GENERAL AND ADMINISTRATIVE EXPENSES
 st.markdown('<div class="section-header">🏢 Selling, General and Administrative Expenses</div>', unsafe_allow_html=True)
-st.info("📝 SG&A Expenses will be populated from Liquidity Forecast. To reorder categories, use the Liquidity Forecast reorder controls.")
+st.info("📝 SG&A Expenses will be populated from Liquidity Forecast dashboard")
 
 # Get SG&A categories from liquidity model order (if available)
 if ("liquidity_data" in st.session_state.model_data and 
@@ -956,7 +940,7 @@ for month in months:
         for cat in sga_categories
     )
 
-st.markdown("**Total SG&A Expenses:**")
+
 create_custom_total_row(total_sga, "Total SG&A Expenses", show_monthly)
 
 st.markdown("---")
@@ -1025,10 +1009,29 @@ for i, year in enumerate(sorted(years_dict.keys())):
         </div>
         """, unsafe_allow_html=True)
 
-# Footer
+# DATA MANAGEMENT
 st.markdown("---")
+st.markdown('<div class="section-header">💾 Data Management</div>', unsafe_allow_html=True)
+
+col1, col2, col3 = st.columns([1, 1, 3])
+
+with col1:
+    if st.button("💾 Save Data", type="primary", use_container_width=True):
+        if save_data(st.session_state.model_data):
+            st.success("✅ Data saved successfully!")
+        else:
+            st.error("❌ Failed to save data")
+
+with col2:
+    if st.button("📂 Load Data", type="primary", use_container_width=True):
+        st.session_state.model_data = load_data()
+        st.success("✅ Data loaded successfully!")
+        st.rerun()
+
+# Footer
 st.markdown("""
-<div style="text-align: center; color: #666; padding: 1rem;">
-    <strong>SHAED Financial Model</strong> | Powering the future of mobility
+<div style="text-align: center; color: #666; padding: 2rem; margin-top: 3rem; border-top: 1px solid #e0e0e0;">
+    <strong>SHAED Financial Model - Income Statement</strong> | Powering the future of mobility<br>
+    <small>© 2025 SHAED - All rights reserved</small>
 </div>
 """, unsafe_allow_html=True)

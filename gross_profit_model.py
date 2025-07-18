@@ -678,7 +678,7 @@ def create_gross_profit_table(revenue_streams, show_monthly=True):
 st.markdown("""
 <div class="main-header">
     <h1>📊 SHAED Financial Model</h1>
-    <h2>💰 Gross Profit</h2>
+    <h2>Gross Profit Analysis</h2>
 </div>
 """, unsafe_allow_html=True)
 

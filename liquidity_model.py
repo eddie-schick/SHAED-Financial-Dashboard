@@ -23,15 +23,8 @@ def is_employee_active_for_month(emp_data, month_str):
         termination_date_str = emp_data.get("termination_date")
         if termination_date_str:
             termination_date = datetime.strptime(termination_date_str, "%Y-%m-%d")
-            # Employee is active until the month AFTER their termination date
-            # Calculate the first day of the month after termination
-            if termination_date.month == 12:
-                next_month_start = datetime(termination_date.year + 1, 1, 1)
-            else:
-                next_month_start = datetime(termination_date.year, termination_date.month + 1, 1)
-            
-            # Employee is inactive starting from the month after termination
-            if month_date >= next_month_start:
+            # Employee must not be terminated before the first day of the month
+            if month_date >= termination_date:
                 return False
         
         return True
@@ -56,15 +49,7 @@ def is_contractor_active_for_month(contractor_data, month_str):
         end_date_str = contractor_data.get("end_date")
         if end_date_str:
             end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
-            # Contractor is active until the month AFTER their end date
-            # Calculate the first day of the month after end date
-            if end_date.month == 12:
-                next_month_start = datetime(end_date.year + 1, 1, 1)
-            else:
-                next_month_start = datetime(end_date.year, end_date.month + 1, 1)
-            
-            # Contractor is inactive starting from the month after end date
-            if month_date >= next_month_start:
+            if month_date >= end_date:
                 return False
         
         return True
@@ -72,15 +57,15 @@ def is_contractor_active_for_month(contractor_data, month_str):
         # If there's any error parsing dates, assume active
         return True
 
-def calculate_monthly_payroll():
-    """Calculate monthly payroll costs from headcount data"""
+def get_calculated_payroll_from_headcount():
+    """Get calculated payroll totals from the headcount tab"""
     if "payroll_data" not in st.session_state.model_data:
         return {}, {month: 0 for month in months}
     
     payroll_data = st.session_state.model_data["payroll_data"]
     employees = payroll_data.get("employees", {})
     
-    # Calculate payroll by department and total
+    # Calculate payroll by department and total using the same logic as payroll_model.py
     payroll_by_dept = {
         "Product Development": {month: 0 for month in months},
         "Sales and Marketing": {month: 0 for month in months}, 
@@ -104,9 +89,10 @@ def calculate_monthly_payroll():
                 pay_periods = payroll_data.get("pay_periods", {}).get(month, 2)
                 monthly_pay = (annual_salary / 26) * pay_periods
             else:  # Hourly
-                # Hourly: Hourly rate * hours in month
+                # Hourly: Hourly rate * weekly hours * weeks in month (4.33 average)
                 hourly_rate = emp_data.get("hourly_rate", 0)
-                monthly_hours = payroll_data.get("monthly_hours", {}).get(month, 173.33)
+                weekly_hours = emp_data.get("weekly_hours", 40.0)
+                monthly_hours = weekly_hours * 4.33  # Average weeks per month
                 monthly_pay = hourly_rate * monthly_hours
             
             payroll_by_dept[department][month] += monthly_pay
@@ -143,7 +129,7 @@ def calculate_monthly_contractor_costs():
 def calculate_total_personnel_costs():
     """Calculate total personnel costs including payroll, taxes/benefits, bonuses, and contractors"""
     
-    payroll_by_dept, total_payroll = calculate_monthly_payroll()
+    payroll_by_dept, total_payroll = get_calculated_payroll_from_headcount()
     contractor_costs = calculate_monthly_contractor_costs()
     
     # Get configuration for payroll tax rate
@@ -170,10 +156,12 @@ def calculate_total_personnel_costs():
     
     for month in months:
         base_payroll = total_payroll[month]
-        monthly_taxes = base_payroll * payroll_tax_rate
+        monthly_bonus = bonuses[month]
+        # Apply payroll taxes to both base payroll and bonuses
+        monthly_taxes = (base_payroll + monthly_bonus) * payroll_tax_rate
         
         payroll_taxes[month] = monthly_taxes
-        total_payroll_cost[month] = base_payroll + monthly_taxes + bonuses[month]
+        total_payroll_cost[month] = base_payroll + monthly_bonus + monthly_taxes
     
     return total_payroll, payroll_taxes, bonuses, contractor_costs, total_payroll_cost
 
@@ -1286,7 +1274,7 @@ def create_summary_table_with_years(data_dict, row_label, show_monthly=True, is_
 st.markdown("""
 <div class="main-header">
     <h1>💰 SHAED Financial Model</h1>
-    <h2>💰 Liquidity Forecast</h2>
+    <h2>Liquidity Forecast</h2>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1401,7 +1389,7 @@ with nav_col2:
 
 with nav_col3:
     load_effective_month = st.selectbox(
-        "Load Data From:",
+        "Load Headcount Data From:",
         options=load_effective_options,
         index=0,
         key="load_effective_month_select",
@@ -1739,7 +1727,7 @@ with reorder_col2:
 expense_categories = st.session_state.model_data["liquidity_data"]["category_order"]
 
 st.markdown("---")
-st.markdown("**💡 Note:** Payroll & Contractors will auto-populate from the headcount tab")
+st.info("💡 Payroll & Contractors will populate from the Headcount dashboard once synched")
 
 # Create expense table
 if expense_categories:
@@ -1962,11 +1950,11 @@ with col5:
         cash_out_text = cash_out_month
     else:
         color = "#00D084"
-        cash_out_text = "Never"
+        cash_out_text = "Sufficient"
     
     st.markdown(f"""
     <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">Cash Runs Out</h4>
+        <h4 style="color: #00D084; margin: 0;">Cash Runway</h4>
         <h2 style="margin: 0.5rem 0 0 0; color: {color};">{cash_out_text}</h2>
     </div>
     """, unsafe_allow_html=True)

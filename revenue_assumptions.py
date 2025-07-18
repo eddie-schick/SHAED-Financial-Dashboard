@@ -1123,8 +1123,8 @@ def calculate_all_revenue():
 # Header
 st.markdown("""
 <div class="main-header">
-    <h1>💰 SHAED Financial Model</h1>
-    <h2>🎯 All Revenue Streams</h2>
+    <h1>💵 SHAED Financial Model</h1>
+    <h2>Revenue Assumptions</h2>
 </div>
 """, unsafe_allow_html=True)
 

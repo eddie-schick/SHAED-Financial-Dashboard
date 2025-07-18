@@ -239,7 +239,7 @@ with col5:
 with col6:
     st.markdown("""
     <div class="nav-card">
-        <h3>📊 Gross Profit Analysis</h3>
+        <h3>🔍 Gross Profit Analysis</h3>
         <p>Gross margin analysis and COGS management</p>
     </div>
     """, unsafe_allow_html=True)
@@ -294,7 +294,7 @@ with feat_col3:
 st.markdown("""
 <div class="footer">
     <strong>SHAED Finance Dashboard</strong> | Powering the future of mobility<br>
-    <small>© 2024 SHAED - All rights reserved</small>
+    <small>© 2025 SHAED - All rights reserved</small>
 </div>
 """, unsafe_allow_html=True)
 
@@ -310,7 +310,7 @@ with st.sidebar:
     - 💰 [Liquidity](liquidity_model.py)
     - 💵 [Revenue](revenue_assumptions.py)
     - 👥 [Headcount](payroll_model.py)
-    - 📊 [Gross Profit](gross_profit_model.py)
+    - 🔍 [Gross Profit](gross_profit_model.py)
     - ☁️ [Hosting](hosting_costs_model.py)
     """)
     

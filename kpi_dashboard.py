@@ -3,6 +3,7 @@ import pandas as pd
 import json
 import os
 from datetime import datetime, date
+import calendar
 import plotly.graph_objects as go
 import plotly.express as px
 from typing import Any
@@ -140,6 +141,84 @@ st.markdown("""
         border-radius: 8px;
         border-left: 4px solid #00D084;
     }
+    
+    /* Light gray background for collapsible sections - match dropdown style */
+    .streamlit-expander {
+        background-color: #f0f2f6 !important;
+        border-radius: 6px;
+        margin-bottom: 10px;
+        border: 1px solid #d1d5db;
+    }
+    
+    .streamlit-expander .streamlit-expanderHeader {
+        background-color: #f0f2f6 !important;
+        border-radius: 6px;
+        padding: 12px;
+    }
+    
+    .streamlit-expander .streamlit-expanderContent {
+        background-color: #f0f2f6 !important;
+        padding: 12px;
+        border-radius: 0 0 6px 6px;
+    }
+    
+    /* Alternative targeting */
+    div[data-testid="stExpander"] {
+        background-color: #f0f2f6 !important;
+        border-radius: 6px;
+        border: 1px solid #d1d5db;
+    }
+    
+    div[data-testid="stExpander"] > div {
+        background-color: #f0f2f6 !important;
+    }
+    
+    div[data-testid="stExpander"] button {
+        background-color: #f0f2f6 !important;
+        border-radius: 6px;
+    }
+    
+    /* Make input boxes white inside expandable sections */
+    div[data-testid="stExpander"] input[type="number"] {
+        background-color: white !important;
+        border: 1px solid #d1d5db !important;
+        border-radius: 4px !important;
+    }
+    
+    div[data-testid="stExpander"] .stNumberInput > div > div > input {
+        background-color: white !important;
+        border: 1px solid #d1d5db !important;
+        border-radius: 4px !important;
+    }
+    
+    /* Footer */
+    .footer {
+        text-align: center;
+        color: #666;
+        padding: 2rem;
+        margin-top: 3rem;
+        border-top: 1px solid #e0e0e0;
+    }
+    
+    /* Green buttons for Data Management */
+    .stButton > button {
+        background-color: #00D084 !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 6px !important;
+        font-weight: 600 !important;
+        transition: all 0.3s ease !important;
+    }
+    
+    .stButton > button:hover {
+        background-color: #00B574 !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2) !important;
+    }
+    
+    .stButton > button:active {
+        transform: translateY(0) !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -201,26 +280,67 @@ with nav_col8:
 # Add visual separator after navigation
 st.markdown("---")
 
-# Date range selector and filters
-col1, col2, col3, col4 = st.columns([2, 2, 3, 3])
+# Date range selector and filters - Default to previous month
+today = date.today()
+# Calculate previous month
+if today.month == 1:
+    prev_month = 12
+    prev_year = today.year - 1
+else:
+    prev_month = today.month - 1
+    prev_year = today.year
+
+# Map month number to month name
+month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+prev_month_name = month_names[prev_month - 1]
+
+# Set default year index
+year_options = ["2025", "2026", "2027", "2028", "2029", "2030", "All Years"]
+try:
+    default_year_index = year_options.index(str(prev_year))
+except ValueError:
+    default_year_index = 0  # Default to 2025 if previous year not in options
+
+col1, col2, col3, col4 = st.columns([2, 2, 2, 3])
 with col1:
     selected_year = st.selectbox(
         "Select Year",
-        ["2025", "2026", "2027", "2028", "2029", "2030", "All Years"],
-        index=6
+        year_options,
+        index=default_year_index
     )
 
 with col2:
     # Month selector - only show if specific year is selected
     if selected_year != "All Years":
         month_options = ["All Months"] + ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        # Set default month index (only if we're in the default year)
+        if selected_year == str(prev_year):
+            try:
+                default_month_index = month_options.index(prev_month_name)
+            except ValueError:
+                default_month_index = 0
+        else:
+            default_month_index = 0
+            
         selected_month = st.selectbox(
             "Select Month",
             month_options,
-            index=0
+            index=default_month_index
         )
     else:
         selected_month = "All Months"
+
+with col3:
+    # MTD/YTD selector - only show if specific month is selected
+    if selected_month != "All Months" and selected_year != "All Years":
+        calculation_type = st.selectbox(
+            "Calculation Type",
+            ["MTD", "YTD"],
+            index=1,
+            help="MTD = Month-to-Date, YTD = Year-to-Date"
+        )
+    else:
+        calculation_type = "Full Period"
 
 # Define all stakeholders from revenue assumptions (exact match)
 all_stakeholders = [
@@ -231,7 +351,7 @@ all_stakeholders = [
     "Upfitter/Distributor", "Utility/Energy Company", "Insurance Company", "Consultant"
 ]
 
-with col3:
+with col4:
     # Customer type filter dropdown
     customer_filter_options = ["All Customer Types"] + all_stakeholders
     selected_customer_filter = st.selectbox(
@@ -247,7 +367,7 @@ with col3:
     else:
         selected_stakeholders = [selected_customer_filter]
 
-# Generate months list based on selection
+# Generate months list based on selection and calculation type
 if selected_year == "All Years":
     months = []
     for year in range(2025, 2031):
@@ -258,17 +378,20 @@ else:
     if selected_month == "All Months":
         months = [f"{month} {year}" for month in ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]]
     else:
-        # Single month selected
-        months = [f"{selected_month} {year}"]
+        # Handle MTD vs YTD calculations
+        if calculation_type == "MTD":
+            # MTD = just the selected month
+            months = [f"{selected_month} {year}"]
+        elif calculation_type == "YTD":
+            # YTD = all months from January through the selected month
+            month_list = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+            selected_month_index = month_list.index(selected_month)
+            months = [f"{month} {year}" for month in month_list[:selected_month_index + 1]]
+        else:
+            # Full Period (fallback)
+            months = [f"{selected_month} {year}"]
 
-# Display current filter selection
-with col4:
-    if selected_year == "All Years":
-        st.info(f"📅 **Period**: All Years (2025-2030)")
-    elif selected_month == "All Months":
-        st.info(f"📅 **Period**: All months in {selected_year}")
-    else:
-        st.info(f"📅 **Period**: {selected_month} {selected_year}")
+
 
 # Helper functions
 def calculate_total_revenue(month):
@@ -331,6 +454,18 @@ def calculate_burn_rate(month):
     net_flow = total_expenses - (revenue + other_cash_receipts + investment)
     
     return net_flow
+
+def calculate_gross_burn(month):
+    """Calculate gross burn rate (total expenses)"""
+    # Get cash flow data from liquidity model
+    liquidity_data = st.session_state.model_data.get("liquidity_data", {})
+    
+    # Cash outflows - get all expense categories
+    expense_categories = liquidity_data.get("category_order", [])
+    expenses = liquidity_data.get("expenses", {})
+    total_expenses = sum(expenses.get(cat, {}).get(month, 0) for cat in expense_categories)
+    
+    return total_expenses
 
 def calculate_cash_balance(month):
     """Calculate cumulative cash balance up to a month"""
@@ -525,24 +660,16 @@ st.markdown('<div class="section-header">🎯 Executive Summary</div>', unsafe_a
 # Calculate key metrics for the selected period
 if selected_year == "All Years":
     # Calculate totals for all years
-    ytd_months = months  # Use all months for "All Years"
-    total_revenue = sum(calculate_total_revenue(month) for month in ytd_months)
+    # Use months list for "All Years" calculation
+    total_revenue = sum(calculate_total_revenue(month) for month in months)
     avg_gross_margin = sum(calculate_gross_margin(month) for month in months) / len(months) if months else 0
     latest_arr = calculate_arr(months[-1]) if months else 0
     latest_cash_balance = calculate_cash_balance(months[-1]) if months else 0
     avg_burn_rate = sum(calculate_burn_rate(month) for month in months) / len(months) if months else 0
     total_customers, avg_arpc = calculate_customer_metrics(months[-1]) if months else (0, 0)
 else:
-    # Calculate for specific year
-    if selected_month == "All Months":
-        ytd_months = months  # Use all months for full year
-    else:
-        # Create YTD months list (January through selected month)
-        month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-        selected_month_index = month_names.index(selected_month)
-        ytd_months = [f"{month_names[i]} {selected_year}" for i in range(selected_month_index + 1)]
-    
-    total_revenue = sum(calculate_total_revenue(month) for month in ytd_months)
+    # Calculate for specific year using the months list (already handles MTD/YTD logic)
+    total_revenue = sum(calculate_total_revenue(month) for month in months)
     avg_gross_margin = sum(calculate_gross_margin(month) for month in months) / len(months) if months else 0
     latest_arr = calculate_arr(months[-1]) if months else 0
     latest_cash_balance = calculate_cash_balance(months[-1]) if months else 0
@@ -558,7 +685,12 @@ with exec_col1:
     elif selected_month == "All Months":
         period_label = f"{selected_year}"
     else:
-        period_label = f"YTD {selected_month} {selected_year}"
+        if calculation_type == "MTD":
+            period_label = f"MTD {selected_month} {selected_year}"
+        elif calculation_type == "YTD":
+            period_label = f"YTD {selected_month} {selected_year}"
+        else:
+            period_label = f"{selected_month} {selected_year}"
     
     st.markdown(f"""
     <div class="kpi-card">
@@ -614,13 +746,18 @@ st.markdown('<div class="section-header">💰 Revenue Metrics</div>', unsafe_all
 rev_col1, rev_col2, rev_col3, rev_col4 = st.columns(4)
 
 with rev_col1:
-    subscription_total = sum(st.session_state.model_data.get("revenue", {}).get("Subscription", {}).get(month, 0) for month in ytd_months)
+    subscription_total = sum(st.session_state.model_data.get("revenue", {}).get("Subscription", {}).get(month, 0) for month in months)
     if selected_year == "All Years":
         period_label = "All Years"
     elif selected_month == "All Months":
         period_label = f"{selected_year}"
     else:
-        period_label = f"YTD {selected_month} {selected_year}"
+        if calculation_type == "MTD":
+            period_label = f"MTD {selected_month} {selected_year}"
+        elif calculation_type == "YTD":
+            period_label = f"YTD {selected_month} {selected_year}"
+        else:
+            period_label = f"{selected_month} {selected_year}"
     
     st.markdown(f"""
     <div class="metric-container">
@@ -631,7 +768,7 @@ with rev_col1:
     """, unsafe_allow_html=True)
 
 with rev_col2:
-    transactional_total = sum(st.session_state.model_data.get("revenue", {}).get("Transactional", {}).get(month, 0) for month in ytd_months)
+    transactional_total = sum(st.session_state.model_data.get("revenue", {}).get("Transactional", {}).get(month, 0) for month in months)
     st.markdown(f"""
     <div class="metric-container">
         <h4>Transactional Revenue</h4>
@@ -641,7 +778,7 @@ with rev_col2:
     """, unsafe_allow_html=True)
 
 with rev_col3:
-    implementation_total = sum(st.session_state.model_data.get("revenue", {}).get("Implementation", {}).get(month, 0) for month in ytd_months)
+    implementation_total = sum(st.session_state.model_data.get("revenue", {}).get("Implementation", {}).get(month, 0) for month in months)
     st.markdown(f"""
     <div class="metric-container">
         <h4>Implementation Revenue</h4>
@@ -651,7 +788,7 @@ with rev_col3:
     """, unsafe_allow_html=True)
 
 with rev_col4:
-    maintenance_total = sum(st.session_state.model_data.get("revenue", {}).get("Maintenance", {}).get(month, 0) for month in ytd_months)
+    maintenance_total = sum(st.session_state.model_data.get("revenue", {}).get("Maintenance", {}).get(month, 0) for month in months)
     st.markdown(f"""
     <div class="metric-container">
         <h4>Maintenance Revenue</h4>
@@ -663,12 +800,7 @@ with rev_col4:
 # CUSTOMER METRICS
 st.markdown('<div class="section-header">👥 Customer Metrics</div>', unsafe_allow_html=True)
 
-# Show which customer type and period is selected
-period_display = f"{selected_month} {selected_year}" if selected_month != "All Months" and selected_year != "All Years" else selected_year
-if selected_customer_filter != "All Customer Types":
-    st.info(f"📊 Showing metrics for: {selected_customer_filter} | Period: {period_display}")
-else:
-    st.info(f"📊 Showing metrics for: All customer types | Period: {period_display}")
+
 
 cust_col1, cust_col2, cust_col3, cust_col4 = st.columns(4)
 
@@ -714,17 +846,23 @@ with cust_col3:
     """, unsafe_allow_html=True)
 
 with cust_col4:
-    # Calculate simple average churn rate for selected stakeholders
+    # Calculate simple average churn rate for selected stakeholders with subscription revenue
     total_churn_rates = 0
     total_months = 0
     
     for stakeholder in selected_stakeholders:
-        churns = st.session_state.model_data.get("subscription_churn_rates", {}).get(stakeholder, {})
+        # Check if this stakeholder has subscription revenue
+        prices = st.session_state.model_data.get("subscription_pricing", {}).get(stakeholder, {})
+        has_subscription_revenue = any(prices.get(month, 0) > 0 for month in months)
         
-        for month in months:
-            churn_rate = churns.get(month, 0)
-            total_churn_rates += churn_rate
-            total_months += 1
+        # Only include stakeholders with subscription revenue in churn calculation
+        if has_subscription_revenue:
+            churns = st.session_state.model_data.get("subscription_churn_rates", {}).get(stakeholder, {})
+            
+            for month in months:
+                churn_rate = churns.get(month, 0)
+                total_churn_rates += churn_rate
+                total_months += 1
     
     # Calculate simple average churn
     if total_months > 0:
@@ -973,10 +1111,10 @@ with chart_tab1:
         fig = go.Figure()
         
         # Add traces for each revenue stream
-        fig.add_trace(go.Bar(name='Subscription', x=df_revenue['Month'], y=df_revenue['Subscription'], marker_color='#00D084'))
-        fig.add_trace(go.Bar(name='Implementation', x=df_revenue['Month'], y=df_revenue['Implementation'], marker_color='#00B574'))
-        fig.add_trace(go.Bar(name='Transactional', x=df_revenue['Month'], y=df_revenue['Transactional'], marker_color='#009564'))
-        fig.add_trace(go.Bar(name='Maintenance', x=df_revenue['Month'], y=df_revenue['Maintenance'], marker_color='#007554'))
+        fig.add_trace(go.Bar(name='Subscription', x=df_revenue['Month'], y=df_revenue['Subscription'], marker_color='#00D084', hovertemplate='<b>%{fullData.name}</b><br>%{y:,.0f}<extra></extra>'))
+        fig.add_trace(go.Bar(name='Implementation', x=df_revenue['Month'], y=df_revenue['Implementation'], marker_color='#3498DB', hovertemplate='<b>%{fullData.name}</b><br>%{y:,.0f}<extra></extra>'))
+        fig.add_trace(go.Bar(name='Transactional', x=df_revenue['Month'], y=df_revenue['Transactional'], marker_color='#F39C12', hovertemplate='<b>%{fullData.name}</b><br>%{y:,.0f}<extra></extra>'))
+        fig.add_trace(go.Bar(name='Maintenance', x=df_revenue['Month'], y=df_revenue['Maintenance'], marker_color='#9B59B6', hovertemplate='<b>%{fullData.name}</b><br>%{y:,.0f}<extra></extra>'))
         
         # Dynamic title based on selection
         if selected_year == "All Years":
@@ -1005,7 +1143,8 @@ with chart_tab2:
         cash_flow_data.append({
             'Month': month,
             'Cash Balance': calculate_cash_balance(month),
-            'Monthly Burn': -calculate_burn_rate(month)
+            'Net Burn': -calculate_burn_rate(month),
+            'Gross Burn': -calculate_gross_burn(month)
         })
     
     if cash_flow_data:
@@ -1020,17 +1159,30 @@ with chart_tab2:
             mode='lines+markers',
             name='Cash Balance',
             line=dict(color='#00D084', width=3),
-            marker=dict(size=8)
+            marker=dict(size=8),
+            hovertemplate='<b>%{fullData.name}</b><br>%{y:,.0f}<extra></extra>'
         ))
         
-        # Add monthly burn as bar
+        # Add net burn as bar
         fig.add_trace(go.Bar(
             x=df_cash['Month'],
-            y=df_cash['Monthly Burn'],
-            name='Monthly Burn',
+            y=df_cash['Net Burn'],
+            name='Net Burn',
             marker_color='#dc3545',
             yaxis='y2',
-            opacity=0.7
+            opacity=0.7,
+            hovertemplate='<b>%{fullData.name}</b><br>%{y:,.0f}<extra></extra>'
+        ))
+        
+        # Add gross burn as bar
+        fig.add_trace(go.Bar(
+            x=df_cash['Month'],
+            y=df_cash['Gross Burn'],
+            name='Gross Burn',
+            marker_color='#f8ac59',
+            yaxis='y2',
+            opacity=0.7,
+            hovertemplate='<b>%{fullData.name}</b><br>%{y:,.0f}<extra></extra>'
         ))
         
         # Dynamic title based on selection
@@ -1043,7 +1195,7 @@ with chart_tab2:
             title=chart_title,
             xaxis_title='Month',
             yaxis=dict(title='Cash Balance ($)', side='left'),
-            yaxis2=dict(title='Monthly Burn ($)', side='right', overlaying='y'),
+            yaxis2=dict(title='Burn Rate ($)', side='right', overlaying='y'),
             hovermode='x unified',
             plot_bgcolor='white',
             paper_bgcolor='white',
@@ -1076,7 +1228,8 @@ with chart_tab3:
             mode='lines+markers',
             name='Total Customers',
             line=dict(color='#00D084', width=3),
-            marker=dict(size=8)
+            marker=dict(size=8),
+            hovertemplate='<b>%{fullData.name}</b><br>%{y:,.0f}<extra></extra>'
         ))
         
         # Add ARPC on secondary axis
@@ -1087,7 +1240,8 @@ with chart_tab3:
             name='Avg Revenue per Customer',
             line=dict(color='#FFA500', width=2, dash='dot'),
             marker=dict(size=6),
-            yaxis='y2'
+            yaxis='y2',
+            hovertemplate='<b>%{fullData.name}</b><br>%{y:,.0f}<extra></extra>'
         ))
         
         # Dynamic title based on selection
@@ -1136,7 +1290,7 @@ with chart_tab4:
         
         # Add stacked bars for each expense category
         for column in df_burn.columns[1:]:
-            fig.add_trace(go.Bar(name=column, x=df_burn['Month'], y=df_burn[column]))
+            fig.add_trace(go.Bar(name=column, x=df_burn['Month'], y=df_burn[column], hovertemplate='<b>%{fullData.name}</b><br>%{y:,.0f}<extra></extra>'))
         
         # Dynamic title based on selection
         if selected_year == "All Years":
@@ -1157,6 +1311,686 @@ with chart_tab4:
         )
         
         st.plotly_chart(fig, use_container_width=True)
+
+# BUDGET VARIANCE ANALYSIS
+st.markdown('<div class="section-header">📊 Budget Variance Analysis</div>', unsafe_allow_html=True)
+
+# Initialize budget data if not exists
+if "budget_data" not in st.session_state.model_data:
+    st.session_state.model_data["budget_data"] = {
+        "monthly_budgets": {},
+        "ytd_budgets": {}
+    }
+
+# Budget filters - separate from main dashboard filters
+budget_col1, budget_col2, budget_col3, budget_col4 = st.columns([2, 2, 2, 2])
+
+with budget_col1:
+    # Get available years from data
+    available_years = sorted(list(set([month.split(" ")[1] for month in months if len(month.split(" ")) > 1])))
+    if available_years:
+        # Default to current year or latest available year
+        current_year = datetime.now().year
+        try:
+            default_year_index = available_years.index(str(current_year))
+        except ValueError:
+            default_year_index = len(available_years) - 1
+        
+        budget_selected_year = st.selectbox(
+            "Budget Year",
+            available_years,
+            index=default_year_index,
+            key="budget_year_filter"
+        )
+    else:
+        budget_selected_year = "2025"
+
+with budget_col2:
+    # Get months for selected year
+    if budget_selected_year:
+        budget_year_months = [month for month in months if month.endswith(budget_selected_year)]
+    else:
+        budget_year_months = months
+    
+    if budget_year_months:
+        # Default to previous month
+        current_date = datetime.now()
+        if current_date.month == 1:
+            default_month = f"{calendar.month_name[12]} {current_date.year - 1}"
+        else:
+            default_month = f"{calendar.month_name[current_date.month - 1]} {current_date.year}"
+        
+        try:
+            default_month_index = budget_year_months.index(default_month)
+        except ValueError:
+            default_month_index = len(budget_year_months) - 1
+        
+        budget_selected_month = st.selectbox(
+            "Budget Month",
+            budget_year_months,
+            index=default_month_index,
+            key="budget_month_filter"
+        )
+    else:
+        budget_selected_month = "Jun 2025"
+
+with budget_col3:
+    budget_calculation_type = st.selectbox(
+        "Budget Analysis Type",
+        ["MTD", "YTD"],
+        index=1,  # Default to YTD
+        help="MTD = Month-to-Date, YTD = Year-to-Date",
+        key="budget_calculation_filter"
+    )
+
+with budget_col4:
+    budget_input_method = st.selectbox(
+        "Budget Input Method",
+        ["Manual Entry", "Sync with Model"],
+        index=0,
+        help="Choose how to enter budget data",
+        key="budget_input_method_filter"
+    )
+
+# Set budget variables based on new filters
+budget_period = budget_calculation_type
+if budget_period == "MTD":
+    budget_month = budget_selected_month
+else:
+    budget_month = "YTD"
+
+# Function to get actual values
+def get_actual_values(period_type, month_or_period):
+    """Get actual values for budget comparison"""
+    # Get dynamic expense categories from liquidity tab
+    expense_categories = st.session_state.model_data.get("liquidity_data", {}).get("category_order", [])
+    
+    if period_type == "MTD":
+        # MTD actuals (single month)
+        month = month_or_period
+        actuals = {
+            # Revenue
+            "subscription_revenue": st.session_state.model_data.get("revenue", {}).get("Subscription", {}).get(month, 0),
+            "transactional_revenue": st.session_state.model_data.get("revenue", {}).get("Transactional", {}).get(month, 0),
+            "implementation_revenue": st.session_state.model_data.get("revenue", {}).get("Implementation", {}).get(month, 0),
+            "maintenance_revenue": st.session_state.model_data.get("revenue", {}).get("Maintenance", {}).get(month, 0),
+            "onboarding_revenue": st.session_state.model_data.get("revenue", {}).get("Onboarding", {}).get(month, 0),
+        }
+        
+        # Add dynamic expenses from liquidity data
+        for category in expense_categories:
+            category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
+            actuals[category_key] = st.session_state.model_data.get("liquidity_data", {}).get("expenses", {}).get(category, {}).get(month, 0)
+        
+        return actuals
+    else:
+        # YTD actuals - sum across ytd_months
+        actuals = {
+            "subscription_revenue": 0,
+            "transactional_revenue": 0,
+            "implementation_revenue": 0,
+            "maintenance_revenue": 0,
+            "onboarding_revenue": 0,
+        }
+        
+        # Initialize dynamic expense categories
+        for category in expense_categories:
+            category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
+            actuals[category_key] = 0
+        
+        # Sum across all months in the period
+        for month in month_or_period:
+            actuals["subscription_revenue"] += st.session_state.model_data.get("revenue", {}).get("Subscription", {}).get(month, 0)
+            actuals["transactional_revenue"] += st.session_state.model_data.get("revenue", {}).get("Transactional", {}).get(month, 0)
+            actuals["implementation_revenue"] += st.session_state.model_data.get("revenue", {}).get("Implementation", {}).get(month, 0)
+            actuals["maintenance_revenue"] += st.session_state.model_data.get("revenue", {}).get("Maintenance", {}).get(month, 0)
+            actuals["onboarding_revenue"] += st.session_state.model_data.get("revenue", {}).get("Onboarding", {}).get(month, 0)
+            
+            # Add dynamic expenses
+            for category in expense_categories:
+                category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
+                actuals[category_key] += st.session_state.model_data.get("liquidity_data", {}).get("expenses", {}).get(category, {}).get(month, 0)
+        
+        return actuals
+
+# Get actual values using budget filters
+if budget_period == "MTD":
+    budget_months = [budget_selected_month]
+else:
+    # Get YTD months for the selected year
+    budget_months = [month for month in months if month.endswith(budget_selected_year)]
+
+actuals = get_actual_values(budget_period, budget_selected_month if budget_period == "MTD" else budget_months)
+
+# Get budget key based on period
+if budget_period == "MTD":
+    budget_key = f"{budget_selected_month}_budget"
+else:
+    budget_key = f"{budget_selected_year}_ytd_budget"
+
+# Get dynamic expense categories from liquidity tab
+expense_categories = st.session_state.model_data.get("liquidity_data", {}).get("category_order", [])
+
+# Initialize budget if not exists OR ensure all current expense categories are included
+if budget_key not in st.session_state.model_data["budget_data"]["monthly_budgets"]:
+    # Initialize with revenue categories
+    budget_dict = {
+        "subscription_revenue": 0,
+        "transactional_revenue": 0,
+        "implementation_revenue": 0,
+        "maintenance_revenue": 0,
+        "onboarding_revenue": 0,
+    }
+    
+    # Add all expense categories from liquidity tab
+    for category in expense_categories:
+        # Convert category name to key (replace spaces with underscores, lowercase)
+        category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
+        budget_dict[category_key] = 0
+    
+    st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key] = budget_dict
+else:
+    # Update existing budget with any new expense categories
+    existing_budget = st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]
+    
+    # Ensure all revenue categories exist
+    revenue_categories = ["subscription_revenue", "transactional_revenue", "implementation_revenue", "maintenance_revenue", "onboarding_revenue"]
+    for rev_cat in revenue_categories:
+        if rev_cat not in existing_budget:
+            existing_budget[rev_cat] = 0
+    
+    # Ensure all current expense categories exist
+    for category in expense_categories:
+        category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
+        if category_key not in existing_budget:
+            existing_budget[category_key] = 0
+
+# Budget input section
+st.markdown("### 📝 Budget Input")
+
+# Budget input based on selected method
+if budget_input_method == "Manual Entry":
+    pass
+    
+elif budget_input_method == "Sync with Model":
+    
+    sync_col1, sync_col2, sync_col3 = st.columns([2, 2, 1])
+    
+    with sync_col1:
+        # Effective month picker
+        all_months = []
+        for year in range(2025, 2031):
+            for month in ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]:
+                all_months.append(f"{month} {year}")
+        
+        # Default to current month or closest available
+        current_month = datetime.now().strftime("%b %Y")
+        default_index = all_months.index(current_month) if current_month in all_months else 0
+        
+        effective_month = st.selectbox(
+            "Effective Month",
+            options=all_months,
+            index=default_index,
+            help="Budget will be updated from this month forward. Historical data remains unchanged."
+        )
+    
+    with sync_col2:
+        pass
+    
+    with sync_col3:
+        st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
+        if st.button("🔄 Sync Budget", type="primary"):
+            try:
+                # Get all months from the model
+                all_months = []
+                for year in range(2025, 2031):
+                    for month in ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]:
+                        all_months.append(f"{month} {year}")
+                
+                # Find the effective month index
+                effective_month_idx = all_months.index(effective_month) if effective_month in all_months else 0
+                
+                # Sync budget for all months from effective date forward
+                months_to_sync = all_months[effective_month_idx:effective_month_idx + 3]  # Test with first 3 months
+                
+                synced_count = 0
+                
+                for month in months_to_sync:
+                    # Get or create budget for this month
+                    month_budget_key = f"{month}_budget"
+                    if month_budget_key not in st.session_state.model_data["budget_data"]["monthly_budgets"]:
+                        st.session_state.model_data["budget_data"]["monthly_budgets"][month_budget_key] = {}
+                    
+                    # Get actual values using the exact same working function
+                    month_actuals = get_actual_values("MTD", month)
+                    
+                    # Calculate total actuals
+                    total_actuals = sum(v for v in month_actuals.values() if isinstance(v, (int, float)))
+                    
+                    if total_actuals > 0:
+                        # Update budget with actual values
+                        for key, value in month_actuals.items():
+                            st.session_state.model_data["budget_data"]["monthly_budgets"][month_budget_key][key] = value
+                        synced_count += 1
+                
+                # Force update current budget being viewed
+                if budget_period == "MTD":
+                    current_viewing_month = budget_selected_month if budget_period == "MTD" else None
+                    
+                    if current_viewing_month and current_viewing_month in months_to_sync:
+                        # Update the current budget key with synced data
+                        current_actuals = get_actual_values("MTD", current_viewing_month)
+                        for key, value in current_actuals.items():
+                            st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key][key] = value
+                
+                if synced_count > 0:
+                    # Save the updated budget data to JSON file
+                    with open(data_file, 'w') as f:
+                        json.dump(st.session_state.model_data, f, indent=2)
+                    
+                    st.success(f"✅ Budget synced with actual data for {synced_count} months starting from {effective_month}")
+                else:
+                    st.warning("⚠️ No months were synced. This could mean there's no actual data for the selected period.")
+                
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Error syncing budget: {str(e)}")
+                import traceback
+                st.error(f"Full error: {traceback.format_exc()}")
+    
+
+    
+
+
+# Show current budget values and allow editing
+if budget_input_method == "Manual Entry":
+    # Revenue Inputs (Collapsible)
+    with st.expander("💰 Revenue Inputs", expanded=False):
+        rev_col1, rev_col2 = st.columns(2)
+        
+        with rev_col1:
+            st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["subscription_revenue"] = st.number_input(
+                "Subscription Revenue",
+                value=st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["subscription_revenue"],
+                min_value=0,
+                step=1000,
+                format="%d",
+                key=f"budget_sub_{budget_key}"
+            )
+            
+            st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["transactional_revenue"] = st.number_input(
+                "Transactional Revenue",
+                value=st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["transactional_revenue"],
+                min_value=0,
+                step=1000,
+                format="%d",
+                key=f"budget_trans_{budget_key}"
+            )
+            
+            st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["onboarding_revenue"] = st.number_input(
+                "Onboarding Revenue",
+                value=st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["onboarding_revenue"],
+                min_value=0,
+                step=1000,
+                format="%d",
+                key=f"budget_onboard_{budget_key}"
+            )
+        
+        with rev_col2:
+            st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["implementation_revenue"] = st.number_input(
+                "Implementation Revenue",
+                value=st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["implementation_revenue"],
+                min_value=0,
+                step=1000,
+                format="%d",
+                key=f"budget_impl_{budget_key}"
+            )
+            
+            st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["maintenance_revenue"] = st.number_input(
+                "Maintenance Revenue",
+                value=st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["maintenance_revenue"],
+                min_value=0,
+                step=1000,
+                format="%d",
+                key=f"budget_maint_{budget_key}"
+            )
+
+    # Expense Inputs (Collapsible) - Dynamic from Liquidity Tab
+    with st.expander("💸 Expense Inputs", expanded=False):
+        # Create columns for expense inputs
+        num_cols = 2
+        expense_cols = st.columns(num_cols)
+        
+        # Dynamic expense inputs based on liquidity tab categories
+        for i, category in enumerate(expense_categories):
+            category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
+            col_idx = i % num_cols
+            
+            with expense_cols[col_idx]:
+                # Ensure the category exists in the budget dict
+                if category_key not in st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]:
+                    st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key][category_key] = 0
+                
+                st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key][category_key] = st.number_input(
+                    category,
+                    value=st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key][category_key],
+                    min_value=0,
+                    step=1000,
+                    format="%d",
+                    key=f"budget_{category_key}_{budget_key}"
+                )
+
+# Budget vs Actual Analysis
+st.markdown("### 📊 Budget vs Actual Analysis")
+
+# Get budget values
+budget_values = st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]
+
+# Create comparison data
+comparison_data = []
+
+# Cash Receipts (Revenue)
+comparison_data.append({
+    "Category": "Cash Receipts",
+    "Item": "Subscription Revenue",
+    "Budget": budget_values["subscription_revenue"],
+    "Actual": actuals["subscription_revenue"],
+    "Variance": actuals["subscription_revenue"] - budget_values["subscription_revenue"],
+    "Variance %": ((actuals["subscription_revenue"] - budget_values["subscription_revenue"]) / budget_values["subscription_revenue"] * 100) if budget_values["subscription_revenue"] != 0 else 0
+})
+
+comparison_data.append({
+    "Category": "Cash Receipts",
+    "Item": "Transactional Revenue",
+    "Budget": budget_values["transactional_revenue"],
+    "Actual": actuals["transactional_revenue"],
+    "Variance": actuals["transactional_revenue"] - budget_values["transactional_revenue"],
+    "Variance %": ((actuals["transactional_revenue"] - budget_values["transactional_revenue"]) / budget_values["transactional_revenue"] * 100) if budget_values["transactional_revenue"] != 0 else 0
+})
+
+comparison_data.append({
+    "Category": "Cash Receipts",
+    "Item": "Implementation Revenue",
+    "Budget": budget_values["implementation_revenue"],
+    "Actual": actuals["implementation_revenue"],
+    "Variance": actuals["implementation_revenue"] - budget_values["implementation_revenue"],
+    "Variance %": ((actuals["implementation_revenue"] - budget_values["implementation_revenue"]) / budget_values["implementation_revenue"] * 100) if budget_values["implementation_revenue"] != 0 else 0
+})
+
+comparison_data.append({
+    "Category": "Cash Receipts",
+    "Item": "Maintenance Revenue",
+    "Budget": budget_values["maintenance_revenue"],
+    "Actual": actuals["maintenance_revenue"],
+    "Variance": actuals["maintenance_revenue"] - budget_values["maintenance_revenue"],
+    "Variance %": ((actuals["maintenance_revenue"] - budget_values["maintenance_revenue"]) / budget_values["maintenance_revenue"] * 100) if budget_values["maintenance_revenue"] != 0 else 0
+})
+
+comparison_data.append({
+    "Category": "Cash Receipts",
+    "Item": "Onboarding Revenue",
+    "Budget": budget_values["onboarding_revenue"],
+    "Actual": actuals["onboarding_revenue"],
+    "Variance": actuals["onboarding_revenue"] - budget_values["onboarding_revenue"],
+    "Variance %": ((actuals["onboarding_revenue"] - budget_values["onboarding_revenue"]) / budget_values["onboarding_revenue"] * 100) if budget_values["onboarding_revenue"] != 0 else 0
+})
+
+# Total Receipts
+total_budget_receipts = sum([budget_values["subscription_revenue"], budget_values["transactional_revenue"], budget_values["implementation_revenue"], budget_values["maintenance_revenue"], budget_values["onboarding_revenue"]])
+total_actual_receipts = sum([actuals["subscription_revenue"], actuals["transactional_revenue"], actuals["implementation_revenue"], actuals["maintenance_revenue"], actuals["onboarding_revenue"]])
+
+comparison_data.append({
+    "Category": "Cash Receipts",
+    "Item": "Total Receipts",
+    "Budget": total_budget_receipts,
+    "Actual": total_actual_receipts,
+    "Variance": total_actual_receipts - total_budget_receipts,
+    "Variance %": ((total_actual_receipts - total_budget_receipts) / total_budget_receipts * 100) if total_budget_receipts != 0 else 0
+})
+
+# Cash Payments (Expenses) - Dynamic from Liquidity Tab
+for category in expense_categories:
+    category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
+    comparison_data.append({
+        "Category": "Cash Payments",
+        "Item": category,
+        "Budget": budget_values.get(category_key, 0),
+        "Actual": actuals.get(category_key, 0),
+        "Variance": actuals.get(category_key, 0) - budget_values.get(category_key, 0),
+        "Variance %": ((actuals.get(category_key, 0) - budget_values.get(category_key, 0)) / budget_values.get(category_key, 0) * 100) if budget_values.get(category_key, 0) != 0 else 0
+    })
+
+# Total Payments
+total_budget_payments = sum([budget_values.get(category.lower().replace(" ", "_").replace("&", "and").replace("/", "_"), 0) for category in expense_categories])
+total_actual_payments = sum([actuals.get(category.lower().replace(" ", "_").replace("&", "and").replace("/", "_"), 0) for category in expense_categories])
+
+comparison_data.append({
+    "Category": "Cash Payments",
+    "Item": "Total Payments",
+    "Budget": total_budget_payments,
+    "Actual": total_actual_payments,
+    "Variance": total_actual_payments - total_budget_payments,
+    "Variance %": ((total_actual_payments - total_budget_payments) / total_budget_payments * 100) if total_budget_payments != 0 else 0
+})
+
+# Net Position
+net_budget = total_budget_receipts - total_budget_payments
+net_actual = total_actual_receipts - total_actual_payments
+
+comparison_data.append({
+    "Category": "Net Position",
+    "Item": "Net Cash Flow",
+    "Budget": net_budget,
+    "Actual": net_actual,
+    "Variance": net_actual - net_budget,
+    "Variance %": ((net_actual - net_budget) / abs(net_budget) * 100) if net_budget != 0 else 0
+})
+
+# Create DataFrame
+df_comparison = pd.DataFrame(comparison_data)
+
+# Display the comparison table with formatting
+st.markdown(f"**Period:** {budget_selected_month if budget_period == 'MTD' else f'{budget_selected_year} YTD'}")
+
+# Custom function to create income statement style tables
+def create_budget_variance_table(comparison_data):
+    """Create a professionally formatted budget variance table matching income statement style"""
+    
+    # Separate data by category
+    receipts_data = [item for item in comparison_data if item['Category'] == 'Cash Receipts']
+    payments_data = [item for item in comparison_data if item['Category'] == 'Cash Payments']
+    net_data = [item for item in comparison_data if item['Category'] == 'Net Position']
+    
+    # Create DataFrame for better rendering
+    import pandas as pd
+    
+    # Create a simplified table structure
+    table_data = []
+    
+    # Add section headers and data
+    table_data.append({
+        'Item': '💰 Cash Receipts',
+        'Budget': '',
+        'Actual': '',
+        'Variance': '',
+        'Variance %': '',
+        'Type': 'header'
+    })
+    
+    # Add receipts data
+    for item in receipts_data:
+        if item['Item'] == 'Total Receipts':
+            continue
+        table_data.append({
+            'Item': f"   {item['Item']}",
+            'Budget': f"${item['Budget']:,.0f}",
+            'Actual': f"${item['Actual']:,.0f}",
+            'Variance': f"${item['Variance']:,.0f}",
+            'Variance %': f"{item['Variance %']:.1f}%",
+            'Type': 'line_item'
+        })
+    
+    # Add total receipts
+    total_receipts = next(item for item in receipts_data if item['Item'] == 'Total Receipts')
+    table_data.append({
+        'Item': 'Total Receipts',
+        'Budget': f"${total_receipts['Budget']:,.0f}",
+        'Actual': f"${total_receipts['Actual']:,.0f}",
+        'Variance': f"${total_receipts['Variance']:,.0f}",
+        'Variance %': f"{total_receipts['Variance %']:.1f}%",
+        'Type': 'subtotal'
+    })
+    
+    # Add payments header
+    table_data.append({
+        'Item': '💸 Cash Payments',
+        'Budget': '',
+        'Actual': '',
+        'Variance': '',
+        'Variance %': '',
+        'Type': 'header'
+    })
+    
+    # Add payments data
+    for item in payments_data:
+        if item['Item'] == 'Total Payments':
+            continue
+        table_data.append({
+            'Item': f"   {item['Item']}",
+            'Budget': f"${item['Budget']:,.0f}",
+            'Actual': f"${item['Actual']:,.0f}",
+            'Variance': f"${item['Variance']:,.0f}",
+            'Variance %': f"{item['Variance %']:.1f}%",
+            'Type': 'line_item'
+        })
+    
+    # Add total payments
+    total_payments = next(item for item in payments_data if item['Item'] == 'Total Payments')
+    table_data.append({
+        'Item': 'Total Payments',
+        'Budget': f"${total_payments['Budget']:,.0f}",
+        'Actual': f"${total_payments['Actual']:,.0f}",
+        'Variance': f"${total_payments['Variance']:,.0f}",
+        'Variance %': f"{total_payments['Variance %']:.1f}%",
+        'Type': 'subtotal'
+    })
+    
+    # Add net position
+    for item in net_data:
+        table_data.append({
+            'Item': f"📊 {item['Item']}",
+            'Budget': f"${item['Budget']:,.0f}",
+            'Actual': f"${item['Actual']:,.0f}",
+            'Variance': f"${item['Variance']:,.0f}",
+            'Variance %': f"{item['Variance %']:.1f}%",
+            'Type': 'net'
+        })
+    
+    # Create DataFrame without the Type column for display
+    display_df = pd.DataFrame(table_data).drop('Type', axis=1)
+    
+    # Custom styling function
+    def style_budget_table(df, type_data):
+        def highlight_rows(row):
+            idx = row.name
+            if idx < len(type_data):
+                row_type = type_data[idx]['Type']
+                if row_type == 'header':
+                    return ['background-color: #00D084; color: white; font-weight: bold'] * len(row)
+                elif row_type == 'subtotal':
+                    return ['background-color: #f0f8ff; font-weight: bold; border-top: 1px solid #ccc'] * len(row)
+                elif row_type == 'net':
+                    return ['background-color: #e8f5e8; font-weight: bold; border-top: 2px solid #00D084'] * len(row)
+            return [''] * len(row)
+        
+        # Apply row styling
+        styled_df = df.style.apply(highlight_rows, axis=1)
+        
+        return styled_df
+    
+    return style_budget_table(display_df, table_data)
+
+# Debug info (optional - can be removed later)
+if st.session_state.model_data["budget_data"]["monthly_budgets"].get(budget_key):
+    budget_total = sum([v for k, v in st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key].items() if isinstance(v, (int, float))])
+    if budget_total == 0:
+        st.warning("⚠️ All budget values are $0. Please enter budget amounts in the sections above.")
+
+# Budget vs Actual Table (Collapsible)
+with st.expander("📊 Budget vs Actual Table", expanded=False):
+    # Display the professionally formatted table
+    styled_table = create_budget_variance_table(comparison_data)
+
+    # Calculate precise height based on actual table content
+    # Count: Revenue items + Total Receipts + Expense items + Total Payments + Net Cash Flow + Headers
+    receipts_count = len([item for item in comparison_data if item['Category'] == 'Cash Receipts'])
+    payments_count = len([item for item in comparison_data if item['Category'] == 'Cash Payments']) 
+    net_count = len([item for item in comparison_data if item['Category'] == 'Net Position'])
+
+    # Total rows: 2 headers + receipts + payments + net + small buffer
+    total_content_rows = 2 + receipts_count + payments_count + net_count
+    table_height = total_content_rows * 40 + 60  # 40px per row + 60px buffer
+
+    st.dataframe(styled_table, use_container_width=True, hide_index=True, height=table_height)
+
+# Summary metrics
+summary_col1, summary_col2, summary_col3, summary_col4 = st.columns(4)
+
+with summary_col1:
+    revenue_variance = total_actual_receipts - total_budget_receipts
+    revenue_variance_pct = (revenue_variance / total_budget_receipts * 100) if total_budget_receipts != 0 else 0
+    color = "#00D084" if revenue_variance >= 0 else "#dc3545"
+    
+    st.markdown(f"""
+    <div class="metric-container">
+        <h4>Revenue Variance</h4>
+        <h2 style="color: {color};">${revenue_variance:,.0f}</h2>
+        <p style="color: {color};">{revenue_variance_pct:.1f}% vs budget</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+with summary_col2:
+    expense_variance = total_actual_payments - total_budget_payments
+    expense_variance_pct = (expense_variance / total_budget_payments * 100) if total_budget_payments != 0 else 0
+    color = "#dc3545" if expense_variance > 0 else "#00D084"
+    
+    st.markdown(f"""
+    <div class="metric-container">
+        <h4>Expense Variance</h4>
+        <h2 style="color: {color};">${expense_variance:,.0f}</h2>
+        <p style="color: {color};">{expense_variance_pct:.1f}% vs budget</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+with summary_col3:
+    net_variance = net_actual - net_budget
+    net_variance_pct = (net_variance / abs(net_budget) * 100) if net_budget != 0 else 0
+    color = "#00D084" if net_variance >= 0 else "#dc3545"
+    
+    st.markdown(f"""
+    <div class="metric-container">
+        <h4>Net Variance</h4>
+        <h2 style="color: {color};">${net_variance:,.0f}</h2>
+        <p style="color: {color};">{net_variance_pct:.1f}% vs budget</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+with summary_col4:
+    # Budget accuracy - percentage of items within 10% of budget
+    items_within_10_percent = sum(1 for item in comparison_data if abs(item['Variance %']) <= 10 and item['Item'] not in ['Total Receipts', 'Total Payments', 'Net Cash Flow'])
+    total_line_items = len(comparison_data) - 3  # Exclude totals
+    accuracy = (items_within_10_percent / total_line_items * 100) if total_line_items > 0 else 0
+    
+    color = "#00D084" if accuracy >= 80 else "#FFA500" if accuracy >= 60 else "#dc3545"
+    
+    st.markdown(f"""
+    <div class="metric-container">
+        <h4>Budget Accuracy</h4>
+        <h2 style="color: {color};">{accuracy:.0f}%</h2>
+        <p>Items within 10% of budget</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 # KEY INSIGHTS
 st.markdown('<div class="section-header">💡 Key Insights & Alerts</div>', unsafe_allow_html=True)
@@ -1234,14 +2068,14 @@ for idx, milestone in enumerate(milestones):
         </div>
         """, unsafe_allow_html=True)
 
-# SAVE AND LOAD DATA
+# DATA MANAGEMENT
 st.markdown("---")
-st.markdown('<div class="section-header">💾 Save and Load Data</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header">💾 Data Management</div>', unsafe_allow_html=True)
 
 col1, col2, col3 = st.columns([1, 1, 3])
 
 with col1:
-    if st.button("💾 Save All Data", type="primary", use_container_width=True):
+    if st.button("💾 Save Data", type="primary", use_container_width=True):
         try:
             with open(data_file, 'w') as f:
                 json.dump(st.session_state.model_data, f, indent=2)
@@ -1250,7 +2084,7 @@ with col1:
             st.error(f"❌ Error saving data: {str(e)}")
 
 with col2:
-    if st.button("📂 Load Data", type="secondary", use_container_width=True):
+    if st.button("📂 Load Data", type="primary", use_container_width=True):
         try:
             if os.path.exists(data_file):
                 with open(data_file, 'r') as f:
@@ -1262,42 +2096,10 @@ with col2:
         except Exception as e:
             st.error(f"❌ Error loading data: {str(e)}")
 
-# Download/Upload functionality
-st.markdown("### 📤 Export/Import Data")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    # Download button
-    if st.session_state.model_data:
-        json_str = json.dumps(st.session_state.model_data, indent=2)
-        st.download_button(
-            label="⬇️ Download Data as JSON",
-            data=json_str,
-            file_name=f"shaed_financial_model_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-            mime="application/json",
-            use_container_width=True
-        )
-
-with col2:
-    # Upload functionality
-    uploaded_file = st.file_uploader("⬆️ Upload Data JSON", type=['json'])
-    if uploaded_file is not None:
-        try:
-            data = json.load(uploaded_file)
-            st.session_state.model_data = data
-            with open(data_file, 'w') as f:
-                json.dump(data, f, indent=2)
-            st.success("✅ Data uploaded and saved successfully!")
-            st.rerun()
-        except Exception as e:
-            st.error(f"❌ Error uploading file: {str(e)}")
-
 # Footer
-st.markdown("---")
 st.markdown("""
-<div style="text-align: center; color: #666; font-size: 0.9rem;">
-    💡 <strong>Tip:</strong> Use the year selector to filter metrics for specific periods. 
-    All metrics are automatically calculated based on data from other dashboard tabs.
+<div class="footer">
+    <strong>SHAED Finance Dashboard - KPIs</strong> | Powering the future of mobility<br>
+    <small>© 2025 SHAED - All rights reserved</small>
 </div>
 """, unsafe_allow_html=True)

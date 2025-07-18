@@ -639,7 +639,7 @@ def create_scaling_analysis():
 st.markdown("""
 <div class="main-header">
     <h1>☁️ SHAED Financial Model</h1>
-    <h2>☁️ Hosting Expenses</h2>
+    <h2>Hosting Expenses</h2>
 </div>
 """, unsafe_allow_html=True)
 

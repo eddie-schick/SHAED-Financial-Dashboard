@@ -529,9 +529,10 @@ def calculate_monthly_payroll():
                 pay_periods = st.session_state.model_data["payroll_data"]["pay_periods"].get(month, 2)
                 monthly_pay = (annual_salary / 26) * pay_periods
             else:  # Hourly
-                # Hourly: Hourly rate * hours in month
+                # Hourly: Hourly rate * weekly hours * weeks in month (4.33 average)
                 hourly_rate = emp_data.get("hourly_rate", 0)
-                monthly_hours = st.session_state.model_data["payroll_data"]["monthly_hours"].get(month, 173.33)
+                weekly_hours = emp_data.get("weekly_hours", 40.0)
+                monthly_hours = weekly_hours * 4.33  # Average weeks per month
                 monthly_pay = hourly_rate * monthly_hours
             
             payroll_by_dept[department][month] += monthly_pay
@@ -562,6 +563,23 @@ def calculate_monthly_contractor_costs():
 # Initialize payroll configuration
 def initialize_payroll_config():
     """Initialize payroll configuration data"""
+    # Initialize payroll_data structure if not exists
+    if "payroll_data" not in st.session_state.model_data:
+        st.session_state.model_data["payroll_data"] = {}
+    
+    # Initialize all payroll_data sub-structures
+    if "employees" not in st.session_state.model_data["payroll_data"]:
+        st.session_state.model_data["payroll_data"]["employees"] = {}
+    
+    if "contractors" not in st.session_state.model_data["payroll_data"]:
+        st.session_state.model_data["payroll_data"]["contractors"] = {}
+    
+    if "employee_bonuses" not in st.session_state.model_data["payroll_data"]:
+        st.session_state.model_data["payroll_data"]["employee_bonuses"] = {}
+    
+    if "pay_periods" not in st.session_state.model_data["payroll_data"]:
+        st.session_state.model_data["payroll_data"]["pay_periods"] = {month: 2 for month in months}
+    
     if "payroll_config" not in st.session_state.model_data["payroll_data"]:
         st.session_state.model_data["payroll_data"]["payroll_config"] = {
             "payroll_tax_percentage": 23.0  # Default 23% for payroll taxes & benefits
@@ -595,10 +613,12 @@ def calculate_total_personnel_costs():
     
     for month in months:
         base_payroll = total_payroll[month]
-        monthly_taxes = base_payroll * payroll_tax_rate
+        monthly_bonus = bonuses[month]
+        # Apply payroll taxes to both base payroll and bonuses
+        monthly_taxes = (base_payroll + monthly_bonus) * payroll_tax_rate
         
         payroll_taxes[month] = monthly_taxes
-        total_payroll_cost[month] = base_payroll + monthly_taxes + bonuses[month]
+        total_payroll_cost[month] = base_payroll + monthly_bonus + monthly_taxes
     
     return total_payroll, payroll_taxes, bonuses, contractor_costs, total_payroll_cost
 
@@ -652,7 +672,7 @@ def update_liquidity_payroll(effective_month=None):
 st.markdown("""
 <div class="main-header">
     <h1>👥 SHAED Financial Model</h1>
-    <h2>💼 Headcount Dashboard</h2>
+    <h2>Headcount</h2>
 </div>
 """, unsafe_allow_html=True)
 
@@ -768,6 +788,7 @@ def create_employee_table():
             "Department": emp_data.get("department", "Opex"),
             "Pay Type": emp_data.get("pay_type", "Salary"),
             "Pay Amount": pay_amount,
+            "Weekly Hours": emp_data.get("weekly_hours", 40.0),
             "Hire Date": hire_date_obj,
             "Termination Date": termination_date_obj,
             "Status": get_employee_status(emp_data)
@@ -795,6 +816,15 @@ def create_employee_table():
             help="Annual salary or hourly rate",
             format="%.2f",
             width="medium"
+        ),
+        "Weekly Hours": st.column_config.NumberColumn(
+            "Weekly Hours",
+            help="Expected weekly hours (used for hourly employees)",
+            min_value=0.0,
+            max_value=80.0,
+            step=0.5,
+            format="%.1f",
+            width="small"
         ),
         "Hire Date": st.column_config.DateColumn(
             "Hire Date",
@@ -863,6 +893,7 @@ def create_employee_table():
             "title": str(row["Title"]) if not pd.isna(row["Title"]) else "",
             "department": str(row["Department"]),
             "pay_type": str(row["Pay Type"]),
+            "weekly_hours": float(row["Weekly Hours"]) if not pd.isna(row["Weekly Hours"]) else 40.0,
             "hire_date": hire_date_str,
             "termination_date": termination_date_str
         }
@@ -1339,7 +1370,7 @@ with quick_col3:
 st.markdown("---")
 
 # HOURLY EMPLOYEE HOURS
-st.markdown('<div class="section-header">⏰ Monthly Hours (Hourly Employees)</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header">⏰ Hourly Employee Configuration</div>', unsafe_allow_html=True)
 
 # Check if there are any hourly employees (considering current/future employees only)
 current_hourly_employees = []
@@ -1350,51 +1381,18 @@ for emp_data in st.session_state.model_data["payroll_data"]["employees"].values(
             current_hourly_employees.append(emp_data)
 
 if current_hourly_employees:
-    st.info(f"💡 Found {len(current_hourly_employees)} hourly employees (current/future). Set monthly hours below. Default is 173.33 hours/month (40 hrs/week × 52 weeks ÷ 12 months)")
+    st.info(f"💡 Found {len(current_hourly_employees)} hourly employees (current/future). Set weekly hours per employee in the Employee Details table above. Default is 40 hours/week.")
     
-    # Display current hourly employees
+    # Display current hourly employees and their weekly hours
     with st.expander("📋 Current Hourly Employees", expanded=False):
         for emp_data in current_hourly_employees:
             status = get_employee_status(emp_data)
-            st.write(f"• {emp_data.get('name', 'Unknown')} - {emp_data.get('department', 'Unknown')} - {status}")
-    
-    # Global hours setting
-    global_hours = st.number_input(
-        "Set Hours for All Months:",
-        value=173.33,
-        min_value=0.0,
-        step=1.0,
-        format="%.2f",
-        help="Apply same hours to all months"
-    )
-    
-    if st.button("📅 Apply to All Months"):
-        for month in months:
-            st.session_state.model_data["payroll_data"]["monthly_hours"][month] = global_hours
-        st.success(f"Set all months to {global_hours} hours")
-        st.rerun()
-    
-    # Monthly hours editing
-    with st.expander("📝 Edit Monthly Hours", expanded=False):
-        for year in sorted(years_dict.keys()):
-            st.markdown(f"**{year}:**")
-            year_cols = st.columns(6)
-            for i, month in enumerate(years_dict[year]):
-                col_idx = i % 6
-                with year_cols[col_idx]:
-                    current_hours = st.session_state.model_data["payroll_data"]["monthly_hours"].get(month, 173.33)
-                    new_hours = st.number_input(
-                        f"{month}:",
-                        value=current_hours,
-                        min_value=0.0,
-                        step=1.0,
-                        format="%.2f",
-                        key=f"hours_{month}"
-                    )
-                    st.session_state.model_data["payroll_data"]["monthly_hours"][month] = new_hours
+            weekly_hours = emp_data.get("weekly_hours", 40.0)
+            monthly_hours = weekly_hours * 4.33  # Average weeks per month
+            st.write(f"• {emp_data.get('name', 'Unknown')} - {emp_data.get('department', 'Unknown')} - {weekly_hours} hrs/week (~{monthly_hours:.1f} hrs/month) - {status}")
 
 else:
-    st.info("ℹ️ No active hourly employees found. Hours configuration only applies to current and future hourly employees.")
+    st.info("ℹ️ No active hourly employees found. Add hourly employees in the Employee Details table above.")
 
 st.markdown("---")
 
@@ -1594,9 +1592,9 @@ for month in months:
 # Payroll cost breakdown (tables without titles)
 create_custom_payroll_total_row(base_payroll, "Total Base Payroll", show_monthly)
 
-create_custom_payroll_total_row(payroll_taxes, "Total Payroll Taxes & Benefits", show_monthly)
-
 create_custom_payroll_total_row(bonuses, "Total Employee Bonuses", show_monthly)
+
+create_custom_payroll_total_row(payroll_taxes, "Total Payroll Taxes & Benefits", show_monthly)
 
 create_custom_payroll_total_row(total_payroll_cost, "Total Payroll Cost", show_monthly)
 
@@ -1784,7 +1782,8 @@ with col5:
                 monthly_payroll += (annual_salary / 26) * pay_periods
             else:
                 hourly_rate = emp_data.get("hourly_rate", 0)
-                monthly_hours = st.session_state.model_data["payroll_data"]["monthly_hours"].get(sample_month, 173.33)
+                weekly_hours = emp_data.get("weekly_hours", 40.0)
+                monthly_hours = weekly_hours * 4.33  # Average weeks per month
                 monthly_payroll += hourly_rate * monthly_hours
     
     st.markdown(f"""
