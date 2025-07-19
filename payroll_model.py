@@ -7,7 +7,7 @@ import uuid
 
 # Configure page
 st.set_page_config(
-    page_title="SHAED Finance Dashboard - Headcount",
+    page_title="Headcount",
     page_icon="👥",
     layout="wide"
 )
@@ -683,8 +683,7 @@ def update_liquidity_payroll(effective_month=None):
 # Header
 st.markdown("""
 <div class="main-header">
-    <h1>👥 SHAED Financial Model</h1>
-    <h2>Headcount</h2>
+    <h1>👥 Headcount Planning</h1>
 </div>
 """, unsafe_allow_html=True)
 
@@ -731,26 +730,7 @@ st.markdown("---")
 # Initialize data
 initialize_payroll_config()
 
-# Data management controls
-st.markdown('<div class="section-header">💾 Data Management</div>', unsafe_allow_html=True)
 
-nav_col1, nav_col2 = st.columns([1, 1])
-
-with nav_col1:
-    if st.button("💾 Save Data", type="primary"):
-        if not save_data(st.session_state.model_data):
-            st.error("Failed to save data")
-        else:
-            st.success("Data saved successfully!")
-            st.rerun()
-
-with nav_col2:
-    if st.button("📂 Load Data"):
-        st.session_state.model_data = load_data()
-        st.success("Data loaded successfully!")
-        st.rerun()
-
-st.markdown("---")
 
 # Helper function to create employee management table
 def create_employee_table():
@@ -856,7 +836,6 @@ def create_employee_table():
         df,
         use_container_width=True,
         num_rows="dynamic",
-        height=min(600, len(table_data) * 35 + 150),
         column_config=column_config,
         hide_index=True,
         key="employee_management_table"
@@ -974,7 +953,6 @@ def create_bonus_table():
         df,
         use_container_width=True,
         num_rows="dynamic",
-        height=min(400, len(table_data) * 35 + 150),
         column_config=column_config,
         hide_index=True,
         key="bonus_management_table"
@@ -1124,7 +1102,6 @@ def create_contractor_table():
         df,
         use_container_width=True,
         num_rows="dynamic",
-        height=min(400, len(table_data) * 35 + 150),
         column_config=column_config,
         hide_index=True,
         key="contractor_management_table"
@@ -1277,71 +1254,76 @@ def create_department_summary_table():
         hide_index=True
     )
 
+# View toggle
+view_col1, view_col2 = st.columns([0.75, 3.25])
+with view_col1:
+    view_mode = st.selectbox(
+        "View Mode:",
+        ["Monthly + Yearly", "Yearly Only"],
+        key="payroll_view_mode"
+    )
+
 # EMPLOYEE MANAGEMENT SECTION
 st.markdown('<div class="section-header">👥 Employee Management</div>', unsafe_allow_html=True)
 
-st.info("💡 Add, edit, or remove employees using the table below. Use the + button to add new rows. Pay Amount represents annual salary for salaried employees or hourly rate for hourly employees. Set termination date to remove employees from payroll.")
-
-
-
-st.markdown("**Legend:** 🟢 Current | 🔵 Future | 🔴 Terminated")
-
 # Employee management table
-st.markdown("**Employee Details:**")
+tax_col1, tax_col2 = st.columns([0.75, 3.25])
+with tax_col1:
+    current_tax_rate = st.session_state.model_data["payroll_data"]["payroll_config"].get("payroll_tax_percentage", 23.0)
+    new_tax_rate = st.number_input(
+        "Payroll Tax & Benefits (%):",
+        value=current_tax_rate,
+        min_value=0.0,
+        max_value=50.0,
+        step=0.1,
+        format="%.1f",
+        help="Percentage of base payroll for payroll taxes, benefits, and employer contributions"
+    )
+    st.session_state.model_data["payroll_data"]["payroll_config"]["payroll_tax_percentage"] = new_tax_rate
+
+st.markdown("Employee Details:")
 create_employee_table()
 
-st.markdown("---")
+# Employee summary
+active_employees = 0
+total_monthly_rate = 0
 
-# Department summary
-st.markdown("**Department Summary:**")
-create_department_summary_table()
+for emp_data in st.session_state.model_data["payroll_data"]["employees"].values():
+    status = get_employee_status(emp_data)
+    if "Current" in status:
+        active_employees += 1
+        
+        # Calculate monthly cost for this employee
+        pay_type = emp_data.get("pay_type", "Salary")
+        if pay_type == "Salary":
+            annual_salary = emp_data.get("annual_salary", 0)
+            # Use average of 2.17 pay periods per month (26 periods / 12 months)
+            monthly_cost = (annual_salary / 26) * 2.17
+        else:  # Hourly
+            hourly_rate = emp_data.get("hourly_rate", 0)
+            weekly_hours = emp_data.get("weekly_hours", 40.0)
+            monthly_hours = weekly_hours * 4.33  # Average weeks per month
+            monthly_cost = hourly_rate * monthly_hours
+        
+        total_monthly_rate += monthly_cost
 
-st.markdown("---")
+# Display employee subtotals
+st.markdown(f"**Total Active Employees: {active_employees}**")
+st.markdown(f"**Total Monthly Rate: ${total_monthly_rate:,.2f}**")
+st.markdown(f"**Total Annual Cost: ${total_monthly_rate * 12:,.2f}**")
 
-# PERSONNEL COST CONFIGURATION
-st.markdown('<div class="section-header">⚙️ Personnel Cost Configuration</div>', unsafe_allow_html=True)
-
-st.markdown("**Payroll Tax & Benefits Rate:**")
-current_tax_rate = st.session_state.model_data["payroll_data"]["payroll_config"].get("payroll_tax_percentage", 23.0)
-new_tax_rate = st.number_input(
-    "Payroll Tax & Benefits (%):",
-    value=current_tax_rate,
-    min_value=0.0,
-    max_value=50.0,
-    step=0.1,
-    format="%.1f",
-    help="Percentage of base payroll for payroll taxes, benefits, and employer contributions"
-)
-st.session_state.model_data["payroll_data"]["payroll_config"]["payroll_tax_percentage"] = new_tax_rate
-
-st.markdown("---")
-
-# EMPLOYEE BONUS MANAGEMENT
-st.markdown('<div class="section-header">🎁 Employee Bonus Management</div>', unsafe_allow_html=True)
-
-st.info("💡 Add individual employee bonuses by specifying the employee name, bonus amount, and month. Use the + button to add new rows.")
-
-# Employee bonus table
-st.markdown("**Employee Bonuses:**")
+st.markdown("Employee Bonuses:")
 create_bonus_table()
-
-# Bonus summary
-bonus_total = sum(bonus_data.get("bonus_amount", 0) for bonus_data in st.session_state.model_data["payroll_data"]["employee_bonuses"].values())
-st.markdown(f"**Total Bonuses (6 years): ${bonus_total:,.2f}**")
-
-st.info("💡 The payroll tax percentage is applied to the base payroll, while bonuses are added as specified in the table above.")
 
 st.markdown("---")
 
 # PAY PERIOD CONFIGURATION
 st.markdown('<div class="section-header">📅 Pay Period Configuration</div>', unsafe_allow_html=True)
 
-st.info("💡 Configure how many pay periods occur in each month. Standard bi-weekly schedule has 26 pay periods per year.")
-
 # Display current configuration and allow editing
 years_dict = group_months_by_year(months)
 
-st.markdown("**Pay Periods Per Month:**")
+st.markdown("Pay Periods Per Month:")
 for year in sorted(years_dict.keys()):
     with st.expander(f"📅 {year} Pay Periods", expanded=False):
         year_cols = st.columns(6)
@@ -1357,55 +1339,6 @@ for year in sorted(years_dict.keys()):
                 )
                 st.session_state.model_data["payroll_data"]["pay_periods"][month] = new_periods
 
-# Quick set buttons
-quick_col1, quick_col2, quick_col3 = st.columns(3)
-with quick_col1:
-    if st.button("📋 Standard Schedule", help="Jan, Jul, Dec = 3 periods; others = 2"):
-        for month in months:
-            month_name = month.split(' ')[0]
-            if month_name in ['Jan', 'Jul', 'Dec']:
-                st.session_state.model_data["payroll_data"]["pay_periods"][month] = 3
-            else:
-                st.session_state.model_data["payroll_data"]["pay_periods"][month] = 2
-        st.rerun()
-
-with quick_col2:
-    if st.button("📊 All 2 Periods", help="Set all months to 2 pay periods"):
-        for month in months:
-            st.session_state.model_data["payroll_data"]["pay_periods"][month] = 2
-        st.rerun()
-
-with quick_col3:
-    total_periods = sum(st.session_state.model_data["payroll_data"]["pay_periods"].values())
-    st.metric("Total Pay Periods/Year", total_periods, help="Should equal 26 for bi-weekly schedule")
-
-st.markdown("---")
-
-# HOURLY EMPLOYEE HOURS
-st.markdown('<div class="section-header">⏰ Hourly Employee Configuration</div>', unsafe_allow_html=True)
-
-# Check if there are any hourly employees (considering current/future employees only)
-current_hourly_employees = []
-for emp_data in st.session_state.model_data["payroll_data"]["employees"].values():
-    if emp_data.get("pay_type") == "Hourly":
-        status = get_employee_status(emp_data)
-        if "Current" in status or "Future" in status:
-            current_hourly_employees.append(emp_data)
-
-if current_hourly_employees:
-    st.info(f"💡 Found {len(current_hourly_employees)} hourly employees (current/future). Set weekly hours per employee in the Employee Details table above. Default is 40 hours/week.")
-    
-    # Display current hourly employees and their weekly hours
-    with st.expander("📋 Current Hourly Employees", expanded=False):
-        for emp_data in current_hourly_employees:
-            status = get_employee_status(emp_data)
-            weekly_hours = emp_data.get("weekly_hours", 40.0)
-            monthly_hours = weekly_hours * 4.33  # Average weeks per month
-            st.write(f"• {emp_data.get('name', 'Unknown')} - {emp_data.get('department', 'Unknown')} - {weekly_hours} hrs/week (~{monthly_hours:.1f} hrs/month) - {status}")
-
-else:
-    st.info("ℹ️ No active hourly employees found. Add hourly employees in the Employee Details table above.")
-
 st.markdown("---")
 
 # CONTRACTOR MANAGEMENT
@@ -1416,7 +1349,7 @@ st.info("💡 Add contractor expenses by specifying vendor, role, number of reso
 
 
 # Contractor table
-st.markdown("**Contractor Details:**")
+st.markdown("Contractor Details:")
 create_contractor_table()
 
 # Contractor summary
@@ -1430,12 +1363,8 @@ contractor_total = sum(
 )
 
 # Display subtotals
-col1, col2 = st.columns(2)
-with col1:
-    st.markdown(f"**Total Resources: {total_resources:.1f}**")
-with col2:
-    st.markdown(f"**Total Monthly Rate: ${contractor_total:,.2f}**")
-
+st.markdown(f"**Total Resources: {total_resources:.1f}**")
+st.markdown(f"**Total Monthly Rate: ${contractor_total:,.2f}**")
 st.markdown(f"**Total Annual Cost: ${contractor_total * 12:,.2f}**")
 
 st.markdown("---")
@@ -1582,13 +1511,6 @@ st.markdown('<div class="section-header">📊 Payroll Breakdown Tables</div>', u
 # Calculate payroll costs for tables
 base_payroll, payroll_taxes, bonuses, contractor_costs, total_payroll_cost = calculate_total_personnel_costs()
 payroll_by_dept, _ = calculate_monthly_payroll()  # Still needed for department breakdown
-
-# View mode toggle
-view_mode = st.selectbox(
-    "View Mode:",
-    ["Monthly + Yearly", "Yearly Only"],
-    key="payroll_view_mode"
-)
 
 show_monthly = view_mode == "Monthly + Yearly"
 
@@ -1870,10 +1792,138 @@ with insight_col1:
 with insight_col2:
     st.info("💡 Headcount changes are saved independently. Use the liquidity tab's 'Load Data From' feature to pull in saved headcount data and control effective dates.")
 
-# Footer
+# DATA MANAGEMENT
 st.markdown("---")
+st.markdown('<div class="section-header">💾 Data Management</div>', unsafe_allow_html=True)
+
+col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
+
+with col1:
+    if st.button("💾 Save Data", type="primary", use_container_width=True):
+        if save_data(st.session_state.model_data):
+            st.success("✅ Data saved successfully!")
+        else:
+            st.error("❌ Failed to save data")
+
+with col2:
+    if st.button("📂 Load Data", type="primary", use_container_width=True):
+        st.session_state.model_data = load_data()
+        st.success("✅ Data loaded successfully!")
+        st.rerun()
+
+with col3:
+    # Create Excel export for payroll data
+    try:
+        import tempfile
+        import os
+        from datetime import datetime
+        
+        # Generate timestamp and filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"SHAED_Headcount_Planning_{timestamp}.xlsx"
+        
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+            temp_path = tmp_file.name
+        
+        # Create Excel writer
+        with pd.ExcelWriter(temp_path, engine='openpyxl') as writer:
+            # Export Employee Data
+            employees = st.session_state.model_data["payroll_data"]["employees"]
+            if employees:
+                employee_data = []
+                for emp_id, emp_data in employees.items():
+                    employee_data.append({
+                        'Employee ID': emp_id,
+                        'Name': emp_data.get('name', ''),
+                        'Title': emp_data.get('title', ''),
+                        'Department': emp_data.get('department', ''),
+                        'Pay Type': emp_data.get('pay_type', ''),
+                        'Annual Salary': emp_data.get('annual_salary', 0),
+                        'Hourly Rate': emp_data.get('hourly_rate', 0),
+                        'Weekly Hours': emp_data.get('weekly_hours', 40),
+                        'Hire Date': emp_data.get('hire_date', ''),
+                        'Termination Date': emp_data.get('termination_date', ''),
+                        'Status': get_employee_status(emp_data)
+                    })
+                
+                if employee_data:
+                    emp_df = pd.DataFrame(employee_data)
+                    emp_df.to_excel(writer, sheet_name='Employees', index=False)
+            
+            # Export Contractor Data
+            contractors = st.session_state.model_data["payroll_data"]["contractors"]
+            if contractors:
+                contractor_data = []
+                for contractor_id, contractor_data_dict in contractors.items():
+                    contractor_data.append({
+                        'Contractor ID': contractor_id,
+                        'Vendor': contractor_data_dict.get('vendor', ''),
+                        'Role': contractor_data_dict.get('role', ''),
+                        'Resources': contractor_data_dict.get('resources', 0),
+                        'Hourly Rate': contractor_data_dict.get('hourly_rate', 0),
+                        'Start Date': contractor_data_dict.get('start_date', ''),
+                        'End Date': contractor_data_dict.get('end_date', ''),
+                        'Monthly Rate': contractor_data_dict.get('resources', 0) * contractor_data_dict.get('hourly_rate', 0) * 40 * 4
+                    })
+                
+                if contractor_data:
+                    contractor_df = pd.DataFrame(contractor_data)
+                    contractor_df.to_excel(writer, sheet_name='Contractors', index=False)
+            
+            # Export Payroll Summary by Month
+            base_payroll, payroll_taxes, bonuses, contractor_costs, total_payroll_cost = calculate_total_personnel_costs()
+            payroll_by_dept, _ = calculate_monthly_payroll()
+            
+            payroll_summary = []
+            for month in months:
+                payroll_summary.append({
+                    'Month': month,
+                    'Base Payroll': base_payroll.get(month, 0),
+                    'Payroll Taxes & Benefits': payroll_taxes.get(month, 0),
+                    'Employee Bonuses': bonuses.get(month, 0),
+                    'Total Payroll Cost': total_payroll_cost.get(month, 0),
+                    'Contractor Costs': contractor_costs.get(month, 0),
+                    'Total Personnel Costs': total_payroll_cost.get(month, 0) + contractor_costs.get(month, 0),
+                    'Product Development': payroll_by_dept['Product Development'].get(month, 0),
+                    'Sales and Marketing': payroll_by_dept['Sales and Marketing'].get(month, 0),
+                    'Opex': payroll_by_dept['Opex'].get(month, 0)
+                })
+            
+            if payroll_summary:
+                payroll_df = pd.DataFrame(payroll_summary)
+                payroll_df.to_excel(writer, sheet_name='Payroll Summary', index=False)
+        
+        # Read the file data for download
+        with open(temp_path, 'rb') as f:
+            excel_data = f.read()
+        
+        # Clean up temp file
+        os.unlink(temp_path)
+        
+        # Direct download button that triggers immediately
+        st.download_button(
+            label="📊 Export Excel",
+            data=excel_data,
+            file_name=filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            use_container_width=True
+        )
+        
+    except ImportError:
+        # Fallback button if openpyxl not available
+        if st.button("📊 Export Excel", type="primary", use_container_width=True):
+            st.error("❌ Excel export requires openpyxl. Please install: pip install openpyxl")
+    except Exception as e:
+        # Fallback button if there's an error
+        if st.button("📊 Export Excel", type="primary", use_container_width=True):
+            st.error(f"❌ Error creating Excel file: {str(e)}")
+
+# Footer
 st.markdown("""
-<div style="text-align: center; color: #666; padding: 1rem;">
-    <strong>SHAED Financial Model - Headcount Dashboard</strong> | Powering the future of mobility
+<div style="text-align: center; color: #666; padding: 2rem; margin-top: 3rem; border-top: 1px solid #e0e0e0;">
+    <strong>SHAED Financial Model - Headcount Planning</strong> | Powering the future of mobility<br>
+    <small>© 2025 SHAED - All rights reserved</small>
 </div>
 """, unsafe_allow_html=True)
