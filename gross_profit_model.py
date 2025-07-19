@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 # Configure page
 st.set_page_config(
     page_title="SHAED Finance Dashboard - Gross Profit",
-    page_icon="📊",
+    page_icon="🔍",
     layout="wide"
 )
 
@@ -52,6 +52,18 @@ st.markdown("""
         margin: 1.5rem 0 1rem 0;
         font-size: 1.2rem;
         font-weight: 600;
+    }
+    
+    /* Dashboard Navigation header - centered */
+    .nav-section-header {
+        background-color: #00D084;
+        color: white;
+        padding: 0.75rem 1rem;
+        border-radius: 5px;
+        margin: 1.5rem 0 1rem 0;
+        font-size: 1.2rem;
+        font-weight: 600;
+        text-align: center;
     }
     
     /* Metric containers */
@@ -677,13 +689,13 @@ def create_gross_profit_table(revenue_streams, show_monthly=True):
 # Header
 st.markdown("""
 <div class="main-header">
-    <h1>📊 SHAED Financial Model</h1>
+    <h1>🔍 SHAED Financial Model</h1>
     <h2>Gross Profit Analysis</h2>
 </div>
 """, unsafe_allow_html=True)
 
 # Unified Navigation Bar
-st.markdown('<div class="section-header">🧭 Dashboard Navigation</div>', unsafe_allow_html=True)
+st.markdown('<div class="nav-section-header">🧭 Dashboard Navigation</div>', unsafe_allow_html=True)
 
 nav_col1, nav_col2, nav_col3, nav_col4, nav_col5, nav_col6, nav_col7, nav_col8 = st.columns(8)
 
@@ -712,7 +724,7 @@ with nav_col6:
         st.info("Run: streamlit run payroll_model.py")
 
 with nav_col7:
-    if st.button("📊 Gross Profit", key="nav_gross", use_container_width=True):
+    if st.button("🔍 Gross Profit", key="nav_gross", use_container_width=True):
         st.info("Run: streamlit run gross_profit_model.py")
 
 with nav_col8:

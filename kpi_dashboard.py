@@ -10,7 +10,7 @@ from typing import Any
 
 # Configure page
 st.set_page_config(
-    page_title="SHAED Finance Dashboard - KPIs",
+    page_title="KPIs",
     page_icon="📊",
     layout="wide"
 )
@@ -56,6 +56,18 @@ st.markdown("""
         margin: 1.5rem 0 1rem 0;
         font-size: 1.2rem;
         font-weight: 600;
+    }
+    
+    /* Dashboard Navigation header - centered */
+    .nav-section-header {
+        background-color: #00D084;
+        color: white;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 1.5rem 0 1rem 0;
+        font-size: 1.2rem;
+        font-weight: 600;
+        text-align: center;
     }
     
     /* Metric containers */
@@ -235,13 +247,12 @@ if os.path.exists(data_file):
 # Header
 st.markdown("""
 <div class="main-header">
-    <h1>📊 KPI Dashboard</h1>
-    <h2>Key Performance Indicators & Metrics</h2>
+    <h1>📊 KPIs</h1>
 </div>
 """, unsafe_allow_html=True)
 
 # Unified Navigation Bar
-st.markdown('<div class="section-header">🧭 Dashboard Navigation</div>', unsafe_allow_html=True)
+st.markdown('<div class="nav-section-header">🧭 Dashboard Navigation</div>', unsafe_allow_html=True)
 
 nav_col1, nav_col2, nav_col3, nav_col4, nav_col5, nav_col6, nav_col7, nav_col8 = st.columns(8)
 
@@ -270,7 +281,7 @@ with nav_col6:
         st.info("Run: streamlit run payroll_model.py")
 
 with nav_col7:
-    if st.button("📊 Gross Profit", key="nav_gross", use_container_width=True):
+    if st.button("🔍 Gross Profit", key="nav_gross", use_container_width=True):
         st.info("Run: streamlit run gross_profit_model.py")
 
 with nav_col8:
@@ -851,12 +862,37 @@ with cust_col4:
     total_months = 0
     
     for stakeholder in selected_stakeholders:
-        # Check if this stakeholder has subscription revenue
-        prices = st.session_state.model_data.get("subscription_pricing", {}).get(stakeholder, {})
-        has_subscription_revenue = any(prices.get(month, 0) > 0 for month in months)
+        # Check if this stakeholder has active subscribers based on calculation type
+        customers = st.session_state.model_data.get("subscription_running_totals", {}).get(stakeholder, {})
         
-        # Only include stakeholders with subscription revenue in churn calculation
-        if has_subscription_revenue:
+        # Determine which months to check for active subscribers
+        if calculation_type == "YTD" and selected_year != "All Years":
+            # For YTD, check if there were subscribers in any month from January through the period
+            if selected_month != "All Months":
+                # YTD for specific month: Jan through selected month
+                month_list = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+                selected_month_index = month_list.index(selected_month)
+                ytd_months = [f"{month} {selected_year}" for month in month_list[:selected_month_index + 1]]
+            else:
+                # YTD for "All Months": Jan through current month or all months
+                current_month = datetime.now().strftime("%b")
+                month_list = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+                try:
+                    current_month_index = month_list.index(current_month)
+                    if selected_year == str(datetime.now().year):
+                        ytd_months = [f"{month} {selected_year}" for month in month_list[:current_month_index + 1]]
+                    else:
+                        ytd_months = [f"{month} {selected_year}" for month in month_list]
+                except ValueError:
+                    ytd_months = [f"{month} {selected_year}" for month in month_list]
+            
+            has_active_subscribers = any(customers.get(month, 0) > 0 for month in ytd_months)
+        else:
+            # For MTD, Full Year, or All Years, check the actual analysis period
+            has_active_subscribers = any(customers.get(month, 0) > 0 for month in months)
+        
+        # Only include stakeholders with active subscribers in churn calculation
+        if has_active_subscribers:
             churns = st.session_state.model_data.get("subscription_churn_rates", {}).get(stakeholder, {})
             
             for month in months:

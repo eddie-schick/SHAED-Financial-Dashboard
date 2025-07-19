@@ -4,7 +4,7 @@ from datetime import datetime
 
 # Configure page
 st.set_page_config(
-    page_title="SHAED Finance Dashboard - Home",
+    page_title="Home",
     page_icon="🏠",
     layout="wide"
 )
@@ -162,7 +162,7 @@ st.markdown("""
 # Header
 st.markdown("""
 <div class="main-header">
-    <h1>🏠 SHAED Finance Dashboard</h1>
+    <h1>🏠 Home</h1>
     <p>Comprehensive Financial Planning & Analysis Platform</p>
 </div>
 """, unsafe_allow_html=True)

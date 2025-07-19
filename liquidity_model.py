@@ -127,9 +127,10 @@ def calculate_monthly_contractor_costs():
     return contractor_costs
 
 def calculate_total_personnel_costs():
-    """Calculate total personnel costs including payroll, taxes/benefits, bonuses, and contractors"""
+    """Calculate total personnel costs using the same logic as the payroll model"""
     
-    payroll_by_dept, total_payroll = get_calculated_payroll_from_headcount()
+    # Use the same calculation logic as the payroll model
+    payroll_by_dept, base_payroll = get_calculated_payroll_from_headcount()
     contractor_costs = calculate_monthly_contractor_costs()
     
     # Get configuration for payroll tax rate
@@ -138,7 +139,7 @@ def calculate_total_personnel_costs():
         config = st.session_state.model_data["payroll_data"].get("payroll_config", {})
         payroll_tax_rate = config.get("payroll_tax_percentage", 23.0) / 100.0
     
-    # Calculate bonuses from employee bonus data
+    # Calculate bonuses from employee bonus data (same as payroll model)
     bonuses = {month: 0 for month in months}
     if "payroll_data" in st.session_state.model_data:
         employee_bonuses = st.session_state.model_data["payroll_data"].get("employee_bonuses", {})
@@ -150,25 +151,25 @@ def calculate_total_personnel_costs():
             if bonus_month in bonuses:
                 bonuses[bonus_month] += bonus_amount
     
-    # Calculate payroll taxes and total payroll cost
+    # Calculate payroll taxes and total payroll cost (same as payroll model)
     payroll_taxes = {}
     total_payroll_cost = {}
     
     for month in months:
-        base_payroll = total_payroll[month]
+        monthly_base = base_payroll[month]
         monthly_bonus = bonuses[month]
         # Apply payroll taxes to both base payroll and bonuses
-        monthly_taxes = (base_payroll + monthly_bonus) * payroll_tax_rate
+        monthly_taxes = (monthly_base + monthly_bonus) * payroll_tax_rate
         
         payroll_taxes[month] = monthly_taxes
-        total_payroll_cost[month] = base_payroll + monthly_bonus + monthly_taxes
+        total_payroll_cost[month] = monthly_base + monthly_bonus + monthly_taxes
     
-    return total_payroll, payroll_taxes, bonuses, contractor_costs, total_payroll_cost
+    return base_payroll, payroll_taxes, bonuses, contractor_costs, total_payroll_cost
 
 def update_liquidity_with_payroll(effective_month=None):
-    """Update liquidity model with calculated payroll and contractor costs"""
+    """Update liquidity model with calculated payroll and contractor costs from headcount tab"""
     
-    # Calculate costs
+    # Calculate costs using the same logic as the payroll model
     base_payroll, payroll_taxes, bonuses, contractor_costs, total_payroll_cost = calculate_total_personnel_costs()
     
     # Initialize liquidity data if needed
@@ -197,13 +198,14 @@ def update_liquidity_with_payroll(effective_month=None):
         
         for i, month in enumerate(months):
             if i >= effective_index:
+                # Use total_payroll_cost which includes base + taxes + bonuses
                 current_payroll[month] = total_payroll_cost[month]
                 current_contractors[month] = contractor_costs[month]
         
         st.session_state.model_data["liquidity_data"]["expenses"]["Payroll"] = current_payroll
         st.session_state.model_data["liquidity_data"]["expenses"]["Contractors"] = current_contractors
     else:
-        # Update all months (original behavior)
+        # Update all months - use total_payroll_cost which includes base + taxes + bonuses
         st.session_state.model_data["liquidity_data"]["expenses"]["Payroll"] = total_payroll_cost
         st.session_state.model_data["liquidity_data"]["expenses"]["Contractors"] = contractor_costs
     
@@ -261,6 +263,18 @@ st.markdown("""
         margin: 1.5rem 0 1rem 0;
         font-size: 1.2rem;
         font-weight: 600;
+    }
+    
+    /* Dashboard Navigation header - centered */
+    .nav-section-header {
+        background-color: #00D084;
+        color: white;
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 1.5rem 0 1rem 0;
+        font-size: 1.2rem;
+        font-weight: 600;
+        text-align: center;
     }
     
     /* Button styling */
@@ -1075,14 +1089,14 @@ def create_expense_table_with_years(categories, show_monthly=True):
         }
         for col in columns[1:-1]:  # Skip first and last columns
             if "Total" in col:
-                column_config[col] = st.column_config.TextColumn(col, width=90, disabled=True)
+                column_config[col] = st.column_config.TextColumn(col, width="small", disabled=True)
             else:
-                column_config[col] = st.column_config.NumberColumn(col, width=90, format="%.0f")
+                column_config[col] = st.column_config.NumberColumn(col, width="small", format="%.0f")
     else:
         column_config = {
             "Expense Category": st.column_config.TextColumn("Expense Category", disabled=True, width="medium", pinned=True),
             "Classification": st.column_config.TextColumn("Classification", disabled=True, width="medium"),
-            **{col: st.column_config.TextColumn(col, width=90, disabled=True) for col in columns[1:-1]}
+            **{col: st.column_config.TextColumn(col, width="small", disabled=True) for col in columns[1:-1]}
         }
     
     # Display editable table
@@ -1273,13 +1287,12 @@ def create_summary_table_with_years(data_dict, row_label, show_monthly=True, is_
 # Header with SHAED branding
 st.markdown("""
 <div class="main-header">
-    <h1>💰 SHAED Financial Model</h1>
-    <h2>Liquidity Forecast</h2>
+    <h1>💰 Liquidity Forecast</h1>
 </div>
 """, unsafe_allow_html=True)
 
 # Unified Navigation Bar
-st.markdown('<div class="section-header">🧭 Dashboard Navigation</div>', unsafe_allow_html=True)
+st.markdown('<div class="nav-section-header">🧭 Dashboard Navigation</div>', unsafe_allow_html=True)
 
 nav_col1, nav_col2, nav_col3, nav_col4, nav_col5, nav_col6, nav_col7, nav_col8 = st.columns(8)
 
@@ -1308,7 +1321,7 @@ with nav_col6:
         st.info("Run: streamlit run payroll_model.py")
 
 with nav_col7:
-    if st.button("📊 Gross Profit", key="nav_gross", use_container_width=True):
+    if st.button("🔍 Gross Profit", key="nav_gross", use_container_width=True):
         st.info("Run: streamlit run gross_profit_model.py")
 
 with nav_col8:
@@ -1340,119 +1353,35 @@ auto_sync_revenue_from_income_statement()
 # Auto-populate payroll and contractor data from headcount tab
 # update_liquidity_with_payroll()
 
-# Navigation and action buttons
-st.markdown('<div class="section-header">🧭 Navigation & Controls</div>', unsafe_allow_html=True)
-
-nav_col1, nav_col2, nav_col3, nav_col4 = st.columns([1, 1, 2, 1])
-
-with nav_col1:
-    if st.button("🏠 Back to Income Statement", type="secondary"):
-        st.info("Please run: streamlit run financial_model.py")
-
-# Effective date selection for loading data - shorter list (outside columns for shared access)
-current_year = datetime.now().year
-load_effective_options = ["All Data (Replace Everything)"]
-
-# Add only current year and next 2 years to keep dropdown manageable
-for year in range(current_year, current_year + 3):
-    for month_num in range(1, 13):
-        month_str = f"{date(year, month_num, 1).strftime('%b %Y')}"
-        if month_str in months:  # Only include months that exist in our data
-            load_effective_options.append(month_str)
-
-with nav_col2:
-    # Create sub-columns for side-by-side buttons
-    save_col, load_col = st.columns(2)
-    
-    with save_col:
-        if st.button("💾 Save Data", type="primary"):
-            update_sga_expenses()  # Update SG&A before saving
-            if save_data(st.session_state.model_data):
-                st.success("Liquidity data saved and SG&A updated!")
-            else:
-                st.error("Failed to save data")
-    
-    with load_col:
-        if st.button("📂 Load Data", type="secondary"):
-            load_effective_month = st.session_state.get("load_effective_month", "All Data (Replace Everything)")
-            if load_effective_month == "All Data (Replace Everything)":
-                st.session_state.model_data = load_data()
-                load_message = "All data loaded successfully!"
-                initialize_liquidity_data()
-            else:
-                st.session_state.model_data = load_data_from_month(load_effective_month)
-                load_message = f"Data loaded from {load_effective_month} forward, historical expenses preserved!"
-                initialize_liquidity_data()
-            
-            st.success(load_message)
-            st.rerun()
-
-with nav_col3:
-    load_effective_month = st.selectbox(
-        "Load Headcount Data From:",
-        options=load_effective_options,
-        index=0,
-        key="load_effective_month_select",
-        help="Choose when to start loading expense data. 'All Data' replaces everything, or select a specific month to preserve historical expenses."
-    )
-    
-    # Store in session state for access by Load Data button
-    st.session_state.load_effective_month = load_effective_month
-    
-    if st.button("🔄 Sync Payroll from Headcount", type="secondary"):
-        effective_month_for_sync = None if load_effective_month == "All Data (Replace Everything)" else load_effective_month
-        update_liquidity_with_payroll(effective_month_for_sync)
-        
-        if effective_month_for_sync:
-            st.success(f"Payroll and contractor data synced from {effective_month_for_sync} forward, historical data preserved!")
-        else:
-            st.success("Payroll and contractor data synced for all months!")
-
-with nav_col4:
+# View toggle
+view_col1, view_col2 = st.columns([1, 3])
+with view_col1:
     view_mode = st.selectbox(
         "View Mode:",
         ["Monthly + Yearly", "Yearly Only"],
         key="view_mode_liquidity"
     )
 
+with view_col2:
+    balance_col1, balance_col2 = st.columns([1, 2])
+    
+    with balance_col1:
+        starting_balance = st.number_input(
+            "Starting Cash Balance (12/31/24):",
+            value=st.session_state.model_data["liquidity_data"]["starting_balance"],
+            step=1000,
+            format="%d",
+            key="starting_balance_input"
+        )
+        st.session_state.model_data["liquidity_data"]["starting_balance"] = starting_balance
+
+
+
 show_monthly = view_mode == "Monthly + Yearly"
-
-st.markdown("---")
-
-# Period info
-if show_monthly:
-    st.info(f"**Showing {len(months)} months from Jan 2025 to Dec 2030 with yearly subtotals**")
-else:
-    st.info(f"**Showing yearly totals from 2025 to 2030**")
-
-# Starting Balance Settings
-col1, col2 = st.columns([1, 1])
-
-with col1:
-    starting_balance = st.number_input(
-        "Starting Cash Balance (12/31/24):",
-        value=st.session_state.model_data["liquidity_data"]["starting_balance"],
-        step=1000,
-        format="%d",
-        key="starting_balance_input"
-    )
-    st.session_state.model_data["liquidity_data"]["starting_balance"] = starting_balance
-
-with col2:
-    st.markdown(f"""
-    <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">Starting Cash Position</h4>
-        <h2 style="margin: 0.5rem 0 0 0;">${starting_balance:,.0f}</h2>
-    </div>
-    """, unsafe_allow_html=True)
-
-st.markdown("---")
 
 # CASH RECEIPTS SECTION
 st.markdown('<div class="section-header">💵 Cash Receipts</div>', unsafe_allow_html=True)
 st.info("✅ Revenue automatically syncs with revenue from the Income Statement when page loads")
-
-st.markdown("**Cash Receipts**")
 
 # Create editable table for revenue, investment, and other cash receipts
 cash_categories = ["Revenue", "Investment", "Other"]
@@ -1501,13 +1430,13 @@ if show_monthly:
     }
     for col in columns[1:]:
         if "Total" in col:
-            cash_column_config[col] = st.column_config.TextColumn(col, width=90, disabled=True)
+            cash_column_config[col] = st.column_config.TextColumn(col, width="small", disabled=True)
         else:
-            cash_column_config[col] = st.column_config.NumberColumn(col, width=90, format="%.0f")
+            cash_column_config[col] = st.column_config.NumberColumn(col, width="small", format="%.0f")
 else:
     cash_column_config = {
         "Cash Flow Item": st.column_config.TextColumn("Cash Flow Item", disabled=True, width="medium", pinned=True),
-        **{col: st.column_config.TextColumn(col, width=90, disabled=True) for col in columns[1:]}
+        **{col: st.column_config.TextColumn(col, width="small", disabled=True) for col in columns[1:]}
     }
 
 # Display editable cash flow table
@@ -1531,202 +1460,183 @@ for i, data_key in enumerate(cash_data_keys):
                     value = edited_cash_df.iloc[i][month]
                     st.session_state.model_data["liquidity_data"][data_key][month] = float(value) if value != '' else 0
 
-st.markdown("---")
-
 # EXPENSES SECTION
 st.markdown('<div class="section-header">💸 Expenses</div>', unsafe_allow_html=True)
 
-# Add new expense category functionality
-st.markdown("### ➕ Add New Expense Category")
-exp_col1, exp_col2, exp_col3 = st.columns([1, 0.7, 0.6])
+# Expense Management Dropdown
+mgmt_col1, mgmt_col2, mgmt_col3, mgmt_col4 = st.columns([1, 1, 1, 1])
 
-with exp_col1:
-    new_category = st.text_input("Category Name:", key="new_category_input", placeholder="e.g., Office Supplies")
+with mgmt_col1:
+    management_action = st.selectbox(
+        "Expense Management:",
+        ["Add New Expense Category", "Delete Expense Category", "Reorder Expense Categories"],
+        key="expense_management_action"
+    )
 
-with exp_col2:
-    classification = st.selectbox("Classification:", 
-                                ["Personnel", "Product Development", "Sales and Marketing", "Opex"], 
-                                key="new_category_classification")
+# Display relevant section based on selection
+if management_action == "Add New Expense Category":
+    exp_col1, exp_col2, exp_col3, exp_col4 = st.columns([1, 1, 1, 1])
 
-with exp_col3:
-    st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
-    if st.button("➕ Add Category", type="primary") and new_category:
-        if new_category in st.session_state.model_data["liquidity_data"]["expense_categories"]:
-            st.error(f"Category '{new_category}' already exists!")
-        else:
-            # Add new category
-            st.session_state.model_data["liquidity_data"]["expense_categories"][new_category] = {
-                "classification": classification, 
-                "editable": True
-            }
-            # Initialize data for new category
-            st.session_state.model_data["liquidity_data"]["expenses"][new_category] = {month: 0 for month in months}
-            st.success(f"Added '{new_category}' to {classification}")
-            st.rerun()
+    with exp_col1:
+        new_category = st.text_input("Category Name:", key="new_category_input", placeholder="e.g., Office Supplies")
 
-# Delete expense category functionality
-st.markdown("### 🗑️ Delete Expense Category")
-delete_col1, delete_col2 = st.columns([0.7, 0.6])
+    with exp_col2:
+        classification = st.selectbox("Classification:", 
+                                    ["Personnel", "Product Development", "Sales and Marketing", "Opex"], 
+                                    key="new_category_classification")
 
-with delete_col1:
-    # Get editable categories only
-    editable_categories = [cat for cat, info in st.session_state.model_data["liquidity_data"]["expense_categories"].items() 
-                          if info.get("editable", True)]
-    
-    if editable_categories:
-        category_to_delete = st.selectbox("Select Category to Delete:", 
-                                        [""] + editable_categories, 
-                                        key="delete_category_select")
-    else:
-        st.info("No editable categories available to delete")
-        category_to_delete = ""
-
-with delete_col2:
-    st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
-    if st.button("🗑️ Delete Category", type="secondary") and category_to_delete:
-        # Show confirmation dialog
-        if st.session_state.get("confirm_delete") != category_to_delete:
-            st.session_state.confirm_delete = category_to_delete
-            st.warning(f"⚠️ Are you sure you want to delete '{category_to_delete}'? This will remove all data for this category.")
-        else:
-            # Delete the category
-            if category_to_delete in st.session_state.model_data["liquidity_data"]["expense_categories"]:
-                del st.session_state.model_data["liquidity_data"]["expense_categories"][category_to_delete]
-            if category_to_delete in st.session_state.model_data["liquidity_data"]["expenses"]:
-                del st.session_state.model_data["liquidity_data"]["expenses"][category_to_delete]
-            st.success(f"Deleted '{category_to_delete}' successfully!")
-            st.session_state.confirm_delete = None
-            st.rerun()
-
-# Confirm delete button
-if st.session_state.get("confirm_delete"):
-    if st.button(f"✅ Confirm Delete '{st.session_state.confirm_delete}'", type="secondary"):
-        category_to_delete = st.session_state.confirm_delete
-        # Delete the category
-        if category_to_delete in st.session_state.model_data["liquidity_data"]["expense_categories"]:
-            del st.session_state.model_data["liquidity_data"]["expense_categories"][category_to_delete]
-        if category_to_delete in st.session_state.model_data["liquidity_data"]["expenses"]:
-            del st.session_state.model_data["liquidity_data"]["expenses"][category_to_delete]
-        st.success(f"Deleted '{category_to_delete}' successfully!")
-        st.session_state.confirm_delete = None
-        st.rerun()
-
-# Reorder expense categories functionality
-st.markdown("### ↕️ Reorder Expense Categories")
-
-# Initialize category order if not exists
-if "category_order" not in st.session_state.model_data["liquidity_data"]:
-    st.session_state.model_data["liquidity_data"]["category_order"] = list(st.session_state.model_data["liquidity_data"]["expense_categories"].keys())
-
-# Get current ordered categories
-current_order = st.session_state.model_data["liquidity_data"]["category_order"]
-
-# Ensure all categories are in the order list (for new categories)
-all_categories = list(st.session_state.model_data["liquidity_data"]["expense_categories"].keys())
-for cat in all_categories:
-    if cat not in current_order:
-        current_order.append(cat)
-
-# Remove categories that no longer exist
-current_order = [cat for cat in current_order if cat in all_categories]
-st.session_state.model_data["liquidity_data"]["category_order"] = current_order
-
-# Initialize selected category in session state if not exists
-if "selected_reorder_category" not in st.session_state:
-    st.session_state.selected_reorder_category = current_order[0] if current_order else None
-
-# Ensure selected category is still valid
-if st.session_state.selected_reorder_category not in current_order:
-    st.session_state.selected_reorder_category = current_order[0] if current_order else None
-
-# Create interface with grouped buttons
-reorder_col1, reorder_col2 = st.columns([0.7, 2])
-
-with reorder_col1:
-    if current_order:
-        # Use index to maintain selection
-        try:
-            current_index = current_order.index(st.session_state.selected_reorder_category)
-        except (ValueError, AttributeError):
-            current_index = 0
-            
-        selected_index = st.selectbox(
-            "Select Category to Move:", 
-            range(len(current_order)),
-            format_func=lambda x: current_order[x],
-            index=current_index,
-            key="reorder_category_select"
-        )
-        st.session_state.selected_reorder_category = current_order[selected_index]
-    else:
-        st.info("No categories available to reorder")
-
-with reorder_col2:
-    st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
-    # Group buttons in sub-columns for closer spacing
-    btn_col1, btn_col2, btn_col3 = st.columns([0.8, 0.8, 1])
-    
-    with btn_col1:
-        if st.button("⬆️ Move Up", type="secondary") and current_order:
-            current_index = current_order.index(st.session_state.selected_reorder_category)
-            if current_index > 0:
-                # Swap with previous item
-                current_order[current_index], current_order[current_index - 1] = current_order[current_index - 1], current_order[current_index]
-                st.session_state.model_data["liquidity_data"]["category_order"] = current_order
-                st.success(f"Moved '{st.session_state.selected_reorder_category}' up!")
-                st.rerun()
+    with exp_col3:
+        st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
+        if st.button("➕ Add Category", type="primary"):
+            if not new_category or new_category.strip() == "":
+                st.error("Please enter a category name!")
+            elif new_category in st.session_state.model_data["liquidity_data"]["expense_categories"]:
+                st.error(f"Category '{new_category}' already exists!")
             else:
-                st.warning(f"'{st.session_state.selected_reorder_category}' is already at the top!")
-    
-    with btn_col2:
-        if st.button("⬇️ Move Down", type="secondary") and current_order:
-            current_index = current_order.index(st.session_state.selected_reorder_category)
-            if current_index < len(current_order) - 1:
-                # Swap with next item
-                current_order[current_index], current_order[current_index + 1] = current_order[current_index + 1], current_order[current_index]
-                st.session_state.model_data["liquidity_data"]["category_order"] = current_order
-                st.success(f"Moved '{st.session_state.selected_reorder_category}' down!")
+                # Add new category
+                st.session_state.model_data["liquidity_data"]["expense_categories"][new_category] = {
+                    "classification": classification, 
+                    "editable": True
+                }
+                # Initialize data for new category
+                st.session_state.model_data["liquidity_data"]["expenses"][new_category] = {month: 0 for month in months}
+                
+                # Add to category_order list so it shows up in the table
+                if "category_order" not in st.session_state.model_data["liquidity_data"]:
+                    st.session_state.model_data["liquidity_data"]["category_order"] = []
+                st.session_state.model_data["liquidity_data"]["category_order"].append(new_category)
+                
+                st.success(f"Added '{new_category}' to {classification}")
                 st.rerun()
+
+elif management_action == "Delete Expense Category":
+    delete_col1, delete_col2, delete_col3, delete_col4 = st.columns([1, 1, 1, 1])
+
+    with delete_col1:
+        # Get editable categories only
+        editable_categories = [cat for cat, info in st.session_state.model_data["liquidity_data"]["expense_categories"].items() 
+                              if info.get("editable", True)]
+        
+        if editable_categories:
+            category_to_delete = st.selectbox("Select Category to Delete:", 
+                                            [""] + editable_categories, 
+                                            key="delete_category_select")
+        else:
+            st.info("No editable categories available to delete")
+            category_to_delete = ""
+
+    with delete_col2:
+        st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
+        if st.button("🗑️ Delete Category", type="secondary") and category_to_delete:
+            # Show confirmation dialog
+            if st.session_state.get("confirm_delete") != category_to_delete:
+                st.session_state.confirm_delete = category_to_delete
+                st.warning(f"⚠️ Are you sure you want to delete '{category_to_delete}'? This will remove all data for this category.")
             else:
-                st.warning(f"'{st.session_state.selected_reorder_category}' is already at the bottom!")
-    
-    with btn_col3:
-        if st.button("🔄 Reset to Default Order", type="secondary"):
-            # Reset to the default order from the initialization function
-            default_order = [
-                        "Payroll",
-        "Contractors",
-                "License Fees",
-                "Travel",
-                "Shows",
-                "Associations",
-                "Marketing",
-                "Company Vehicle",
-                "Grant Writer",
-                "Insurance",
-                "Legal / Professional Fees",
-                "Permitting/Fees/Licensing",
-                "Shared Services",
-                "Consultants/Audit/Tax",
-                "Pritchard AMEX",
-                "Contingencies"
-            ]
-            # Only include categories that actually exist
-            reset_order = [cat for cat in default_order if cat in all_categories]
-            # Add any new categories that aren't in the default list
-            for cat in all_categories:
-                if cat not in reset_order:
-                    reset_order.append(cat)
-            
-            st.session_state.model_data["liquidity_data"]["category_order"] = reset_order
-            st.session_state.selected_reorder_category = reset_order[0] if reset_order else None
-            st.success("Reset to default order!")
-            st.rerun()
+                # Delete the category
+                if category_to_delete in st.session_state.model_data["liquidity_data"]["expense_categories"]:
+                    del st.session_state.model_data["liquidity_data"]["expense_categories"][category_to_delete]
+                if category_to_delete in st.session_state.model_data["liquidity_data"]["expenses"]:
+                    del st.session_state.model_data["liquidity_data"]["expenses"][category_to_delete]
+                st.success(f"Deleted '{category_to_delete}' successfully!")
+                st.session_state.confirm_delete = None
+                st.rerun()
+
+    # Confirm delete button
+    if st.session_state.get("confirm_delete"):
+        confirm_col1, confirm_col2, confirm_col3, confirm_col4 = st.columns([1, 1, 1, 1])
+        with confirm_col2:
+            if st.button(f"✅ Confirm Delete '{st.session_state.confirm_delete}'", type="secondary"):
+                category_to_delete = st.session_state.confirm_delete
+                # Delete the category
+                if category_to_delete in st.session_state.model_data["liquidity_data"]["expense_categories"]:
+                    del st.session_state.model_data["liquidity_data"]["expense_categories"][category_to_delete]
+                if category_to_delete in st.session_state.model_data["liquidity_data"]["expenses"]:
+                    del st.session_state.model_data["liquidity_data"]["expenses"][category_to_delete]
+                st.success(f"Deleted '{category_to_delete}' successfully!")
+                st.session_state.confirm_delete = None
+                st.rerun()
+
+elif management_action == "Reorder Expense Categories":
+    # Initialize category order if not exists
+    if "category_order" not in st.session_state.model_data["liquidity_data"]:
+        st.session_state.model_data["liquidity_data"]["category_order"] = list(st.session_state.model_data["liquidity_data"]["expense_categories"].keys())
+
+    # Get current ordered categories
+    current_order = st.session_state.model_data["liquidity_data"]["category_order"]
+
+    # Ensure all categories are in the order list (for new categories)
+    all_categories = list(st.session_state.model_data["liquidity_data"]["expense_categories"].keys())
+    for cat in all_categories:
+        if cat not in current_order:
+            current_order.append(cat)
+
+    # Remove categories that no longer exist
+    current_order = [cat for cat in current_order if cat in all_categories]
+    st.session_state.model_data["liquidity_data"]["category_order"] = current_order
+
+    # Initialize selected category in session state if not exists
+    if "selected_reorder_category" not in st.session_state:
+        st.session_state.selected_reorder_category = current_order[0] if current_order else None
+
+    # Ensure selected category is still valid
+    if st.session_state.selected_reorder_category not in current_order:
+        st.session_state.selected_reorder_category = current_order[0] if current_order else None
+
+    # Create interface with grouped buttons
+    reorder_col1, reorder_col2, reorder_col3, reorder_col4 = st.columns([1, 1, 1, 1])
+
+    with reorder_col1:
+        if current_order:
+            # Use index to maintain selection
+            try:
+                current_index = current_order.index(st.session_state.selected_reorder_category)
+            except (ValueError, AttributeError):
+                current_index = 0
+                
+            selected_index = st.selectbox(
+                "Select Category to Move:", 
+                range(len(current_order)),
+                format_func=lambda x: current_order[x],
+                index=current_index,
+                key="reorder_category_select"
+            )
+            st.session_state.selected_reorder_category = current_order[selected_index]
+        else:
+            st.info("No categories available to reorder")
+
+    with reorder_col2:
+        st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
+        # Create sub-columns for move buttons to be side by side
+        move_col1, move_col2 = st.columns([1, 1])
+        
+        with move_col1:
+            if st.button("⬆️ Move Up", type="secondary", use_container_width=True) and current_order:
+                current_index = current_order.index(st.session_state.selected_reorder_category)
+                if current_index > 0:
+                    # Swap with previous item
+                    current_order[current_index], current_order[current_index - 1] = current_order[current_index - 1], current_order[current_index]
+                    st.session_state.model_data["liquidity_data"]["category_order"] = current_order
+                    st.success(f"Moved '{st.session_state.selected_reorder_category}' up!")
+                    st.rerun()
+                else:
+                    st.warning(f"'{st.session_state.selected_reorder_category}' is already at the top!")
+        
+        with move_col2:
+            if st.button("⬇️ Move Down", type="secondary", use_container_width=True) and current_order:
+                current_index = current_order.index(st.session_state.selected_reorder_category)
+                if current_index < len(current_order) - 1:
+                    # Swap with next item
+                    current_order[current_index], current_order[current_index + 1] = current_order[current_index + 1], current_order[current_index]
+                    st.session_state.model_data["liquidity_data"]["category_order"] = current_order
+                    st.success(f"Moved '{st.session_state.selected_reorder_category}' down!")
+                    st.rerun()
+                else:
+                    st.warning(f"'{st.session_state.selected_reorder_category}' is already at the bottom!")
 
 # Get current expense categories in the specified order
 expense_categories = st.session_state.model_data["liquidity_data"]["category_order"]
 
-st.markdown("---")
 st.info("💡 Payroll & Contractors will populate from the Headcount dashboard once synched")
 
 # Create expense table
@@ -1834,8 +1744,6 @@ if revenue_adjustment != 0 or expense_adjustment != 0 or effective_month != mont
             <p style="margin: 0; font-size: 0.8rem;">From {effective_month}</p>
         </div>
         """, unsafe_allow_html=True)
-
-st.markdown("---")
 
 # CASH FLOW SUMMARY
 st.markdown('<div class="section-header">📊 Cash Flow Summary</div>', unsafe_allow_html=True)
@@ -1960,7 +1868,6 @@ with col5:
     """, unsafe_allow_html=True)
 
 # Monthly breakdown by year
-st.markdown("### Yearly Cash Flow Breakdown")
 years_dict = group_months_by_year(months)
 yearly_cols = st.columns(len(years_dict))
 
@@ -1986,6 +1893,80 @@ for i, year in enumerate(sorted(years_dict.keys())):
 
 # Auto-update notification
 st.info("💡 Expense data automatically flows to SG&A section of Income Statement when you save! Revenue can be synced with Income Statement.")
+
+st.markdown("---")
+
+# DATA MANAGEMENT SECTION
+st.markdown('<div class="section-header">💾 Data Management</div>', unsafe_allow_html=True)
+
+# Effective date selection for loading data - shorter list
+current_year = datetime.now().year
+load_effective_options = ["All Data (Replace Everything)"]
+
+# Add only current year and next 2 years to keep dropdown manageable
+for year in range(current_year, current_year + 3):
+    for month_num in range(1, 13):
+        month_str = f"{date(year, month_num, 1).strftime('%b %Y')}"
+        if month_str in months:  # Only include months that exist in our data
+            load_effective_options.append(month_str)
+
+data_col1, data_col2, data_col3, data_col4 = st.columns([1, 1, 1, 2])
+
+with data_col1:
+    if st.button("💾 Save Data", type="primary", use_container_width=True):
+        update_sga_expenses()  # Update SG&A before saving
+        if save_data(st.session_state.model_data):
+            st.success("Liquidity data saved and SG&A updated!")
+        else:
+            st.error("Failed to save data")
+
+with data_col2:
+    if st.button("📂 Load Data", type="secondary", use_container_width=True):
+        load_effective_month = st.session_state.get("load_effective_month", "All Data (Replace Everything)")
+        if load_effective_month == "All Data (Replace Everything)":
+            st.session_state.model_data = load_data()
+            load_message = "All data loaded successfully!"
+            initialize_liquidity_data()
+        else:
+            st.session_state.model_data = load_data_from_month(load_effective_month)
+            load_message = f"Data loaded from {load_effective_month} forward, historical expenses preserved!"
+            initialize_liquidity_data()
+        
+        st.success(load_message)
+        st.rerun()
+
+with data_col3:
+    if st.button("🔄 Sync Payroll from Headcount", type="secondary", use_container_width=True):
+        load_effective_month = st.session_state.get("load_effective_month", "All Data (Replace Everything)")
+        effective_month_for_sync = None if load_effective_month == "All Data (Replace Everything)" else load_effective_month
+        update_liquidity_with_payroll(effective_month_for_sync)
+        
+        if effective_month_for_sync:
+            st.success(f"Payroll and contractor data synced from {effective_month_for_sync} forward, historical data preserved!")
+        else:
+            st.success("Payroll and contractor data synced for all months!")
+        
+        st.rerun()
+
+with data_col4:
+    # Calculate default index for current month
+    current_month_str = datetime.now().strftime('%b %Y')
+    try:
+        default_index = load_effective_options.index(current_month_str)
+    except ValueError:
+        # If current month not found, default to first option
+        default_index = 0
+    
+    load_effective_month = st.selectbox(
+        "Load Headcount Data From:",
+        options=load_effective_options,
+        index=default_index,
+        key="load_effective_month_select",
+        help="Choose when to start loading expense data. 'All Data' replaces everything, or select a specific month to preserve historical expenses."
+    )
+    
+    # Store in session state for access by Load Data button
+    st.session_state.load_effective_month = load_effective_month
 
 # Footer
 st.markdown("---")
