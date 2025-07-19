@@ -3,6 +3,7 @@ import pandas as pd
 import json
 import os
 from datetime import datetime, date
+import plotly.graph_objects as go
 
 # Configure page
 st.set_page_config(
@@ -67,7 +68,8 @@ st.markdown("""
     }
     
     /* Button styling */
-    .stButton > button {
+    .stButton > button,
+    .stDownloadButton > button {
         background: linear-gradient(90deg, #00D084 0%, #00B574 100%);
         color: white;
         border: none;
@@ -78,7 +80,8 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     }
     
-    .stButton > button:hover {
+    .stButton > button:hover,
+    .stDownloadButton > button:hover {
         transform: translateY(-2px);
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
     }
@@ -805,7 +808,7 @@ with nav_col8:
 st.markdown("---")
 
 # View toggle
-view_col1, view_col2 = st.columns([1, 3])
+view_col1, view_col2 = st.columns([0.75, 3.25])
 with view_col1:
     view_mode = st.selectbox(
         "View Mode:",
@@ -834,8 +837,6 @@ for month in months:
 
 create_custom_total_row(total_revenue, "Total Revenue", show_monthly)
 
-st.markdown("---")
-
 # COST OF SALES SECTION
 st.markdown('<div class="section-header">📦 Cost of Sales</div>', unsafe_allow_html=True)
 st.info("📝 Cost of Sales will be populated from Gross Profit dashboard")
@@ -854,8 +855,6 @@ for month in months:
 
 
 create_custom_total_row(total_cost_of_sales, "Total Cost of Sales", show_monthly)
-
-st.markdown("---")
 
 # GROSS PROFIT SECTION
 st.markdown('<div class="section-header">📈 Gross Profit</div>', unsafe_allow_html=True)
@@ -910,8 +909,6 @@ if show_gross_margin:
 
     create_custom_total_row_with_yearly_percentage(total_gross_margin, total_gross_profit, total_revenue, "Total Gross Margin %", show_monthly)
 
-st.markdown("---")
-
 # SELLING, GENERAL AND ADMINISTRATIVE EXPENSES
 st.markdown('<div class="section-header">🏢 Selling, General and Administrative Expenses</div>', unsafe_allow_html=True)
 st.info("📝 SG&A Expenses will be populated from Liquidity Forecast dashboard")
@@ -954,8 +951,6 @@ for month in months:
 
 create_custom_total_row(total_sga, "Total SG&A Expenses", show_monthly)
 
-st.markdown("---")
-
 # NET INCOME
 st.markdown('<div class="section-header">💵 Net Income</div>', unsafe_allow_html=True)
 
@@ -970,61 +965,277 @@ create_custom_total_row(net_income, "Net Income", show_monthly)
 st.markdown("---")
 st.markdown('<div class="section-header">📊 Summary</div>', unsafe_allow_html=True)
 
-col1, col2, col3 = st.columns(3)
+# Add dropdown for time period selection
+summary_col1, summary_col2 = st.columns([0.75, 3.25])
+with summary_col1:
+    # Calculate default index based on current year
+    current_year = str(datetime.now().year)
+    summary_options = ["2025", "2026", "2027", "2028", "2029", "2030", "All Years"]
+    try:
+        default_summary_index = summary_options.index(current_year)
+    except ValueError:
+        default_summary_index = 0  # Fallback to first option if current year not in list
+    
+    summary_period = st.selectbox(
+        "Select time period for summary:",
+        options=summary_options,
+        index=default_summary_index,
+        key="summary_period_select"
+    )
+
+# Determine which months to include based on selection
+if summary_period == "All Years":
+    # Use all months
+    filtered_months = months
+else:
+    # Filter for specific year
+    filtered_months = [month for month in months if summary_period in month]
+
+# Single row of summary metrics
+col1, col2, col3, col4, col5, col6 = st.columns(6)
 with col1:
-    total_revenue_sum = sum(total_revenue.values())
+    # Calculate filtered totals based on selected period
+    total_revenue_sum = sum(total_revenue.get(month, 0) for month in filtered_months)
     st.markdown(f"""
     <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">Total Revenue (6 years)</h4>
+        <h4 style="color: #00D084; margin: 0;">Total Revenue</h4>
         <h2 style="margin: 0.5rem 0 0 0;">${total_revenue_sum:,.0f}</h2>
     </div>
     """, unsafe_allow_html=True)
 
 with col2:
-    total_expenses_sum = sum(total_cost_of_sales.values()) + sum(total_sga.values())
+    total_cost_of_sales_sum = sum(total_cost_of_sales.get(month, 0) for month in filtered_months)
     st.markdown(f"""
     <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">Total Expenses (6 years)</h4>
-        <h2 style="margin: 0.5rem 0 0 0;">${total_expenses_sum:,.0f}</h2>
+        <h4 style="color: #00D084; margin: 0;">Total Cost of Sales</h4>
+        <h2 style="margin: 0.5rem 0 0 0;">${total_cost_of_sales_sum:,.0f}</h2>
     </div>
     """, unsafe_allow_html=True)
 
 with col3:
-    total_net_income_sum = sum(net_income.values())
+    total_gross_profit_sum = sum(total_gross_profit.get(month, 0) for month in filtered_months)
+    st.markdown(f"""
+    <div class="metric-container">
+        <h4 style="color: #00D084; margin: 0;">Total Gross Profit</h4>
+        <h2 style="margin: 0.5rem 0 0 0;">${total_gross_profit_sum:,.0f}</h2>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col4:
+    gross_margin_percentage = (total_gross_profit_sum / total_revenue_sum * 100) if total_revenue_sum > 0 else 0
+    st.markdown(f"""
+    <div class="metric-container">
+        <h4 style="color: #00D084; margin: 0;">Gross Margin</h4>
+        <h2 style="margin: 0.5rem 0 0 0;">{gross_margin_percentage:.1f}%</h2>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col5:
+    total_sga_sum = sum(total_sga.get(month, 0) for month in filtered_months)
+    st.markdown(f"""
+    <div class="metric-container">
+        <h4 style="color: #00D084; margin: 0;">Total SG&A Expenses</h4>
+        <h2 style="margin: 0.5rem 0 0 0;">${total_sga_sum:,.0f}</h2>
+    </div>
+    """, unsafe_allow_html=True)
+
+with col6:
+    total_net_income_sum = sum(net_income.get(month, 0) for month in filtered_months)
     color = "#00D084" if total_net_income_sum >= 0 else "#dc3545"
     st.markdown(f"""
     <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">Total Net Income (6 years)</h4>
+        <h4 style="color: #00D084; margin: 0;">Total Net Income</h4>
         <h2 style="margin: 0.5rem 0 0 0; color: {color};">${total_net_income_sum:,.0f}</h2>
     </div>
     """, unsafe_allow_html=True)
 
-# Yearly breakdown
-st.markdown("### Yearly Breakdown")
-years_dict = group_months_by_year(months)
-yearly_cols = st.columns(len(years_dict))
+st.markdown("---")
 
-for i, year in enumerate(sorted(years_dict.keys())):
-    with yearly_cols[i]:
-        year_revenue = sum(total_revenue.get(month, 0) for month in years_dict[year])
-        year_expenses = sum(total_cost_of_sales.get(month, 0) + total_sga.get(month, 0) for month in years_dict[year])
-        year_net = sum(net_income.get(month, 0) for month in years_dict[year])
-        year_color = "#00D084" if year_net >= 0 else "#dc3545"
+# BAR GRAPH SECTION
+st.markdown("") # Small spacing
+
+# Chart type selection dropdown
+chart_type_col1, chart_type_col2 = st.columns([0.75, 3.25])
+with chart_type_col1:
+    # Get current index based on session state
+    chart_options = ["Total Revenue", "Total Cost of Sales", "Total Gross Profit", "Gross Margin", "Total SG&A Expenses", "Total Net Income"]
+    current_type = st.session_state.get("income_chart_type", "revenue")
+    
+    if current_type == "revenue":
+        current_index = 0
+    elif current_type == "cogs":
+        current_index = 1
+    elif current_type == "gross_profit":
+        current_index = 2
+    elif current_type == "gross_margin":
+        current_index = 3
+    elif current_type == "sga":
+        current_index = 4
+    else:  # net_income
+        current_index = 5
+    
+    selected_chart = st.selectbox(
+        "Select chart type:",
+        options=chart_options,
+        index=current_index,
+        key="income_chart_type_select"
+    )
+    
+    # Update session state based on selection
+    if selected_chart == "Total Revenue":
+        st.session_state.income_chart_type = "revenue"
+    elif selected_chart == "Total Cost of Sales":
+        st.session_state.income_chart_type = "cogs"
+    elif selected_chart == "Total Gross Profit":
+        st.session_state.income_chart_type = "gross_profit"
+    elif selected_chart == "Gross Margin":
+        st.session_state.income_chart_type = "gross_margin"
+    elif selected_chart == "Total SG&A Expenses":
+        st.session_state.income_chart_type = "sga"
+    else:  # Total Net Income
+        st.session_state.income_chart_type = "net_income"
+
+# Get current chart type (default to revenue)
+chart_type = st.session_state.get("income_chart_type", "revenue")
+
+# Prepare chart data based on selected year
+if summary_period == "All Years":
+    # For All Years, show yearly totals
+    chart_data = {}
+    years_dict = group_months_by_year(months)
+    
+    for year in sorted(years_dict.keys()):
+        year_months = years_dict[year]
+        if chart_type == "revenue":
+            chart_data[str(year)] = sum(total_revenue.get(month, 0) for month in year_months)
+        elif chart_type == "cogs":
+            chart_data[str(year)] = sum(total_cost_of_sales.get(month, 0) for month in year_months)
+        elif chart_type == "gross_profit":
+            chart_data[str(year)] = sum(total_gross_profit.get(month, 0) for month in year_months)
+        elif chart_type == "gross_margin":
+            # Calculate gross margin percentage for the year
+            year_revenue = sum(total_revenue.get(month, 0) for month in year_months)
+            year_gross_profit = sum(total_gross_profit.get(month, 0) for month in year_months)
+            chart_data[str(year)] = (year_gross_profit / year_revenue * 100) if year_revenue > 0 else 0
+        elif chart_type == "sga":
+            chart_data[str(year)] = sum(total_sga.get(month, 0) for month in year_months)
+        else:  # net_income
+            chart_data[str(year)] = sum(net_income.get(month, 0) for month in year_months)
+    
+    # Create DataFrame for chart
+    chart_df = pd.DataFrame({
+        'Period': list(chart_data.keys()),
+        'Value': list(chart_data.values())
+    })
+    chart_title = f"{selected_chart} by Year"
+    
+else:
+    # For specific year, show monthly data
+    year_months = [month for month in months if summary_period in month]
+    chart_data = {}
+    
+    # Create month labels (Jan, Feb, etc.)
+    month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    
+    for month_name in month_names:
+        # Find matching month in our data
+        matching_month = None
+        for month in year_months:
+            if month.startswith(month_name):
+                matching_month = month
+                break
         
-        st.markdown(f"""
-        <div class="metric-container">
-            <h4 style="color: #00D084; margin: 0;">{year}</h4>
-            <p style="margin: 0.2rem 0; font-size: 0.9rem;">Revenue: ${year_revenue:,.0f}</p>
-            <p style="margin: 0.2rem 0; font-size: 0.9rem;">Expenses: ${year_expenses:,.0f}</p>
-            <p style="margin: 0.2rem 0; font-weight: bold; color: {year_color};">Net: ${year_net:,.0f}</p>
-        </div>
-        """, unsafe_allow_html=True)
+        if matching_month:
+            if chart_type == "revenue":
+                chart_data[month_name] = total_revenue.get(matching_month, 0)
+            elif chart_type == "cogs":
+                chart_data[month_name] = total_cost_of_sales.get(matching_month, 0)
+            elif chart_type == "gross_profit":
+                chart_data[month_name] = total_gross_profit.get(matching_month, 0)
+            elif chart_type == "gross_margin":
+                # Calculate gross margin percentage for the month
+                month_revenue = total_revenue.get(matching_month, 0)
+                month_gross_profit = total_gross_profit.get(matching_month, 0)
+                chart_data[month_name] = (month_gross_profit / month_revenue * 100) if month_revenue > 0 else 0
+            elif chart_type == "sga":
+                chart_data[month_name] = total_sga.get(matching_month, 0)
+            else:  # net_income
+                chart_data[month_name] = net_income.get(matching_month, 0)
+        else:
+            chart_data[month_name] = 0
+    
+    # Create DataFrame for chart
+    chart_df = pd.DataFrame({
+        'Period': list(chart_data.keys()),
+        'Value': list(chart_data.values())
+    })
+    chart_title = f"{selected_chart} - {summary_period}"
+
+# Display the chart
+if not chart_df.empty:
+    # Create Plotly figure for cleaner appearance
+    fig = go.Figure()
+    
+    # Set color based on chart type
+    if chart_type == "revenue":
+        color = '#00D084'  # Green for revenue
+    elif chart_type == "cogs":
+        color = '#dc3545'  # Red for costs  
+    elif chart_type == "gross_profit":
+        color = '#00B574'  # Dark green for gross profit
+    elif chart_type == "gross_margin":
+        color = '#3498DB'  # Blue for margin percentage
+    elif chart_type == "sga":
+        color = '#F39C12'  # Orange for SG&A expenses
+    else:  # net_income
+        # Use conditional coloring for net income
+        colors = ['#00D084' if val >= 0 else '#dc3545' for val in chart_df['Value']]
+        color = colors
+    
+    # Add bar trace
+    fig.add_trace(go.Bar(
+        x=chart_df['Period'],
+        y=chart_df['Value'],
+        marker_color=color,
+        opacity=0.7,
+        hovertemplate='<b>%{x}</b><br>' + ('$%{y:,.0f}' if chart_type != "gross_margin" else '%{y:.1f}%') + '<extra></extra>',
+        showlegend=False
+    ))
+    
+    # Update layout with clean styling
+    fig.update_layout(
+        title=dict(
+            text=chart_title,
+            font=dict(size=18, color='#262730')
+        ),
+        xaxis=dict(
+            title='',
+            showgrid=False,
+            tickangle=-45 if summary_period != "All Years" else 0
+        ),
+        yaxis=dict(
+            title=('Percentage (%)' if chart_type == "gross_margin" else 'Amount ($)'),
+            showgrid=True,
+            gridcolor='rgba(128,128,128,0.2)',
+            tickformat=('%.1f%%' if chart_type == "gross_margin" else '$,.0f')
+        ),
+        hovermode='x unified',
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font=dict(family="Arial, sans-serif", size=12),
+        height=350,
+        margin=dict(l=50, r=50, t=80, b=50)
+    )
+    
+    # Display the chart
+    st.plotly_chart(fig, use_container_width=True)
 
 # DATA MANAGEMENT
 st.markdown("---")
 st.markdown('<div class="section-header">💾 Data Management</div>', unsafe_allow_html=True)
 
-col1, col2, col3 = st.columns([1, 1, 3])
+col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
 
 with col1:
     if st.button("💾 Save Data", type="primary", use_container_width=True):
@@ -1038,6 +1249,165 @@ with col2:
         st.session_state.model_data = load_data()
         st.success("✅ Data loaded successfully!")
         st.rerun()
+
+with col3:
+    # Create Excel export data
+    try:
+        import tempfile
+        import os
+        from datetime import datetime
+        
+        # Generate timestamp and filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"SHAED_Income_Statement_{timestamp}.xlsx"
+        
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+            temp_path = tmp_file.name
+        
+        # Create Excel writer
+        with pd.ExcelWriter(temp_path, engine='openpyxl') as writer:
+            # Export Revenue Data - filter for correct categories only
+            revenue_data = st.session_state.model_data.get("revenue", {})
+            if revenue_data:
+                # Filter to only include the correct revenue categories
+                filtered_revenue_data = {}
+                for category in revenue_categories:
+                    if category in revenue_data:
+                        filtered_revenue_data[category] = revenue_data[category]
+                
+                if filtered_revenue_data:
+                    revenue_df = pd.DataFrame(filtered_revenue_data).T
+                    revenue_df.index.name = 'Month'
+                    revenue_df.to_excel(writer, sheet_name='Revenue')
+            
+            # Export Cost of Sales Data - filter for correct categories only
+            cogs_data = st.session_state.model_data.get("cogs", {})
+            if cogs_data:
+                # Filter to only include the correct COGS categories
+                filtered_cogs_data = {}
+                for category in cost_of_sales_categories:
+                    if category in cogs_data:
+                        filtered_cogs_data[category] = cogs_data[category]
+                
+                if filtered_cogs_data:
+                    cogs_df = pd.DataFrame(filtered_cogs_data).T
+                    cogs_df.index.name = 'Month'
+                    cogs_df.to_excel(writer, sheet_name='Cost of Sales')
+            
+            # Export Gross Profit Data - filter for correct categories only
+            gross_profit_data = st.session_state.model_data.get("gross_profit", {})
+            if gross_profit_data:
+                # Filter to only include the correct gross profit categories
+                filtered_gross_profit_data = {}
+                for category in ["Subscription", "Transactional", "Implementation", "Maintenance"]:
+                    if category in gross_profit_data:
+                        filtered_gross_profit_data[category] = gross_profit_data[category]
+                
+                if filtered_gross_profit_data:
+                    gross_profit_df = pd.DataFrame(filtered_gross_profit_data).T
+                    gross_profit_df.index.name = 'Month'
+                    gross_profit_df.to_excel(writer, sheet_name='Gross Profit')
+            
+            # Export SG&A Expenses Data - filter for correct categories only
+            sga_data = st.session_state.model_data.get("sga_expenses", {})
+            if sga_data:
+                # Filter to only include the correct SG&A categories
+                filtered_sga_data = {}
+                for category in sga_categories:
+                    if category in sga_data:
+                        filtered_sga_data[category] = sga_data[category]
+                
+                if filtered_sga_data:
+                    sga_df = pd.DataFrame(filtered_sga_data).T
+                    sga_df.index.name = 'Month'
+                    sga_df.to_excel(writer, sheet_name='SGA Expenses')
+            
+            # Export Income Statement Summary
+            summary_data = []
+            for month in months:
+                revenue = sum(st.session_state.model_data.get("revenue", {}).get(cat, {}).get(month, 0) for cat in revenue_categories)
+                cost_of_sales = sum(st.session_state.model_data.get("cogs", {}).get(cat, {}).get(month, 0) for cat in cost_of_sales_categories)
+                gross_profit = revenue - cost_of_sales
+                sga = sum(st.session_state.model_data.get("sga_expenses", {}).get(cat, {}).get(month, 0) for cat in sga_categories)
+                net_income = gross_profit - sga
+                gross_margin = (gross_profit / revenue * 100) if revenue > 0 else 0
+                
+                summary_data.append({
+                    'Month': month,
+                    'Total Revenue': revenue,
+                    'Total Cost of Sales': cost_of_sales,
+                    'Total Gross Profit': gross_profit,
+                    'Gross Margin %': gross_margin,
+                    'Total SGA Expenses': sga,
+                    'Net Income': net_income
+                })
+            
+            if summary_data:
+                summary_df = pd.DataFrame(summary_data)
+                summary_df.to_excel(writer, sheet_name='Income Statement Summary', index=False)
+            
+            # Export Yearly Summary
+            years_dict = group_months_by_year(months)
+            yearly_summary = []
+            for year in sorted(years_dict.keys()):
+                year_months = years_dict[year]
+                # Calculate yearly totals from raw data
+                year_revenue = sum(
+                    sum(st.session_state.model_data.get("revenue", {}).get(cat, {}).get(month, 0) for cat in revenue_categories)
+                    for month in year_months
+                )
+                year_cogs = sum(
+                    sum(st.session_state.model_data.get("cogs", {}).get(cat, {}).get(month, 0) for cat in cost_of_sales_categories)
+                    for month in year_months
+                )
+                year_gross_profit = year_revenue - year_cogs
+                year_sga = sum(
+                    sum(st.session_state.model_data.get("sga_expenses", {}).get(cat, {}).get(month, 0) for cat in sga_categories)
+                    for month in year_months
+                )
+                year_net_income = year_gross_profit - year_sga
+                year_gross_margin = (year_gross_profit / year_revenue * 100) if year_revenue > 0 else 0
+                
+                yearly_summary.append({
+                    'Year': year,
+                    'Total Revenue': year_revenue,
+                    'Total Cost of Sales': year_cogs,
+                    'Total Gross Profit': year_gross_profit,
+                    'Gross Margin %': year_gross_margin,
+                    'Total SGA Expenses': year_sga,
+                    'Net Income': year_net_income
+                })
+            
+            if yearly_summary:
+                yearly_df = pd.DataFrame(yearly_summary)
+                yearly_df.to_excel(writer, sheet_name='Yearly Summary', index=False)
+        
+        # Read the file data for download
+        with open(temp_path, 'rb') as f:
+            excel_data = f.read()
+        
+        # Clean up temp file
+        os.unlink(temp_path)
+        
+        # Direct download button that triggers immediately
+        st.download_button(
+            label="📊 Export Excel",
+            data=excel_data,
+            file_name=filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            use_container_width=True
+        )
+        
+    except ImportError:
+        # Fallback button if openpyxl not available
+        if st.button("📊 Export Excel", type="primary", use_container_width=True):
+            st.error("❌ Excel export requires openpyxl. Please install: pip install openpyxl")
+    except Exception as e:
+        # Fallback button if there's an error
+        if st.button("📊 Export Excel", type="primary", use_container_width=True):
+            st.error(f"❌ Error creating Excel file: {str(e)}")
 
 # Footer
 st.markdown("""

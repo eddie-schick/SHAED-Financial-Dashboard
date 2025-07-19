@@ -6,8 +6,8 @@ from datetime import datetime, date
 
 # Configure page
 st.set_page_config(
-    page_title="SHAED Finance Dashboard - Revenue",
-    page_icon="💰",
+    page_title="Revenue Assumptions",
+    page_icon="💵",
     layout="wide"
 )
 
@@ -93,7 +93,8 @@ st.markdown("""
     }
     
     /* Button styling */
-    .stButton > button {
+    .stButton > button,
+    .stDownloadButton > button {
         background: linear-gradient(90deg, #00D084 0%, #00B574 100%);
         color: white;
         border: none;
@@ -104,7 +105,8 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     }
     
-    .stButton > button:hover {
+    .stButton > button:hover,
+    .stDownloadButton > button:hover {
         transform: translateY(-2px);
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
     }
@@ -785,6 +787,7 @@ def create_custom_total_row(total_dict, row_label, show_monthly=True):
     
     # Fixed category column
     html_content += '<div class="fixed-category-column">'
+    html_content += '<div class="category-header">Category</div>'
     html_content += f'<div class="category-total">{row_label}</div>'
     html_content += '</div>'
     
@@ -800,6 +803,13 @@ def create_custom_total_row(total_dict, row_label, show_monthly=True):
             html_content += '<col style="width: 80px;">'
     
     html_content += '</colgroup>'
+    
+    # Header row
+    html_content += '<thead><tr style="height: 43px !important;">'
+    for col in data_columns:
+        css_class = "data-header year-total" if "Total" in col else "data-header"
+        html_content += f'<th class="{css_class}" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important; text-align: center !important;">{col}</th>'
+    html_content += '</tr></thead>'
     
     # Data row
     html_content += '<tbody><tr class="total-row" style="height: 43px !important;">'
@@ -908,7 +918,7 @@ def create_stakeholder_table_with_years(metric_name, data_key, filtered_stakehol
         df,
         use_container_width=True,
         num_rows="fixed",
-        height=min(600, len(filtered_stakeholders) * 35 + 100),
+        height=len(filtered_stakeholders) * 35 + 50,
         column_config=column_config,
         hide_index=True,
         column_order=["Stakeholder"] + [col for col in columns[1:]],
@@ -1029,7 +1039,7 @@ def create_transactional_table_with_years(metric_name, data_key, default_value=0
         df,
         use_container_width=True,
         num_rows="fixed",
-        height=min(400, len(transactional_categories) * 35 + 100),
+        height=len(transactional_categories) * 35 + 50,
         column_config=column_config,
         hide_index=True,
         column_order=["Category"] + [col for col in columns[1:]],
@@ -1132,11 +1142,10 @@ def calculate_all_revenue():
     for stream, monthly_data in revenue_streams.items():
         st.session_state.model_data["revenue"][stream] = monthly_data
 
-# Header
+# Header with SHAED branding
 st.markdown("""
 <div class="main-header">
-    <h1>💵 SHAED Financial Model</h1>
-    <h2>Revenue Assumptions</h2>
+    <h1>💵 Revenue Assumptions</h1>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1180,192 +1189,93 @@ with nav_col8:
 # Add visual separator after navigation
 st.markdown("---")
 
-# Data management controls
-st.markdown('<div class="section-header">💾 Data Management</div>', unsafe_allow_html=True)
-col1, col2, col3 = st.columns([1, 1, 2])
-
-with col1:
-    if st.button("💾 Save Data", type="primary"):
-        calculate_all_revenue()
-        if save_data(st.session_state.model_data):
-            st.success("All revenue data saved successfully!")
-        else:
-            st.error("Failed to save data")
-
-with col2:
-    if st.button("📂 Load Data"):
-        st.session_state.model_data = load_data()
-        st.success("Data loaded successfully!")
-        st.rerun()
-
-with col3:
+# View mode and stakeholder filter controls
+view_col1, view_col2, view_col3, view_col4 = st.columns([0.75, 0.05, 0.75, 2.45])
+with view_col1:
     view_mode = st.selectbox(
         "View Mode:",
         ["Monthly + Yearly", "Yearly Only"],
-        key="view_mode_all_revenue",
-        help="Switch between detailed monthly view with yearly totals or yearly summary only"
+        key="view_mode_all_revenue"
+    )
+
+with view_col3:
+    stakeholder_options = ["All Stakeholders"] + stakeholders
+    selected_stakeholder = st.selectbox(
+        "Stakeholder:",
+        stakeholder_options,
+        key="stakeholder_filter_all_revenue"
     )
 
 show_monthly = view_mode == "Monthly + Yearly"
 
-st.markdown("---")
+# Determine filtered stakeholders based on selection
+if selected_stakeholder == "All Stakeholders":
+    filtered_stakeholders = stakeholders.copy()
+else:
+    filtered_stakeholders = [selected_stakeholder]
 
-# STAKEHOLDER FILTERING SECTION
-st.markdown("""
-<div class="filter-section">
-    <div class="filter-header">🔍 Stakeholder Filters</div>
-</div>
-""", unsafe_allow_html=True)
+st.markdown("<br>", unsafe_allow_html=True)
 
-col1, col2, col3 = st.columns([2, 1, 1])
 
-with col1:
-    st.markdown("**Select Stakeholders to Display:**")
-    
-    if 'selected_all_revenue_stakeholder_list' not in st.session_state:
-        st.session_state.selected_all_revenue_stakeholder_list = stakeholders.copy()
-    
-    filter_option = st.selectbox(
-        "Choose filtering option:",
-        ["All Stakeholders", "Custom Selection"],
-        key="filter_option_select_all_revenue",
-        help="Choose to show all stakeholders or make a custom selection"
-    )
-    
-    if filter_option == "Custom Selection":
-        with st.expander("Select Stakeholders", expanded=True):
-            checkbox_cols = st.columns(4)
-            selections = {}
-            
-            for i, stakeholder in enumerate(stakeholders):
-                col_idx = i % 4
-                with checkbox_cols[col_idx]:
-                    selections[stakeholder] = st.checkbox(
-                        stakeholder,
-                        value=stakeholder in st.session_state.selected_all_revenue_stakeholder_list,
-                        key=f"all_revenue_checkbox_{stakeholder}"
-                    )
-            
-            st.session_state.selected_all_revenue_stakeholder_list = [
-                stakeholder for stakeholder, selected in selections.items() if selected
-            ]
-    else:
-        st.session_state.selected_all_revenue_stakeholder_list = stakeholders.copy()
 
-with col2:
-    st.markdown("**Quick Actions:**")
-    if st.button("Select All", key="select_all_revenue_stakeholders"):
-        st.session_state.selected_all_revenue_stakeholder_list = stakeholders.copy()
-        st.rerun()
-
-with col3:
-    st.markdown("**\u00A0**")
-    if st.button("Clear All", key="clear_all_revenue_stakeholders"):
-        st.session_state.selected_all_revenue_stakeholder_list = []
-        st.rerun()
-
-filtered_stakeholders = st.session_state.selected_all_revenue_stakeholder_list
-
-st.markdown("---")
-
-# Period and filter info
-info_col1, info_col2 = st.columns(2)
-
-with info_col1:
-    if show_monthly:
-        st.info(f"**Showing {len(months)} months from Jan 2025 to Dec 2030 with yearly subtotals**")
-    else:
-        st.info(f"**Showing yearly totals from 2025 to 2030**")
-
-with info_col2:
-    st.info(f"**Displaying {len(filtered_stakeholders)} of {len(stakeholders)} stakeholders**")
-
-# Info section
-st.markdown(f"""
-<div style="text-align: center; padding: 1rem; background-color: white; border-radius: 8px; margin: 1rem 0;">
-    <div class="revenue-badge">{len(filtered_stakeholders)} Stakeholders</div>
-    <div class="revenue-badge">{len(months)} Months</div>
-    <div class="revenue-badge">4 Revenue Streams</div>
-</div>
-""", unsafe_allow_html=True)
+# REVENUE ASSUMPTIONS SECTION
+st.markdown('<div class="section-header">📋 Revenue Assumptions</div>', unsafe_allow_html=True)
 
 # TABBED INTERFACE FOR REVENUE STREAMS
 tab1, tab2, tab3, tab4 = st.tabs(["📋 Subscription", "💳 Transactional", "🚀 Implementation", "🔧 Maintenance"])
 
 with tab1:
-    st.markdown('<div class="section-header">📋 Subscription Revenue (Cumulative)</div>', unsafe_allow_html=True)
-    
     if len(filtered_stakeholders) > 0:
-        st.markdown("**📈 New Subscription Customers Per Month:**")
-        create_stakeholder_table_with_years("New Subscription Customers", "subscription_new_customers", filtered_stakeholders, default_value=0.0, format_type="number", show_monthly=show_monthly)
+        with st.expander("📈 New Subscription Customers Per Month", expanded=False):
+            create_stakeholder_table_with_years("New Subscription Customers", "subscription_new_customers", filtered_stakeholders, default_value=0.0, format_type="number", show_monthly=show_monthly)
         
-        st.markdown("---")
+        with st.expander("💵 Monthly Subscription Price Per Customer", expanded=False):
+            create_stakeholder_table_with_years("Subscription Pricing", "subscription_pricing", filtered_stakeholders, default_value=0.0, format_type="currency", show_monthly=show_monthly)
         
-        st.markdown("**💵 Monthly Subscription Price Per Customer:**")
-        create_stakeholder_table_with_years("Subscription Pricing", "subscription_pricing", filtered_stakeholders, default_value=0.0, format_type="currency", show_monthly=show_monthly)
-        
-        st.markdown("---")
-        
-        st.markdown("**📉 Monthly Churn Rates (%):**")
-        create_stakeholder_table_with_years("Churn Rates", "subscription_churn_rates", filtered_stakeholders, default_value=0.0, format_type="percentage", show_monthly=show_monthly)
-        
-        st.markdown("---")
+        with st.expander("📉 Monthly Churn Rates (%)", expanded=False):
+            create_stakeholder_table_with_years("Churn Rates", "subscription_churn_rates", filtered_stakeholders, default_value=0.0, format_type="percentage", show_monthly=show_monthly)
         
         # Calculate and display running totals (this will recalculate every time the page refreshes)
         calculate_subscription_running_totals()
         
-        st.markdown("**📊 Cumulative Active Subscribers (After Churn):**")
-        st.info("💡 This shows the running total of active subscribers after applying churn each month. Updates automatically as you change values above.")
-        
-        # Create read-only table for running totals using custom HTML format
-        if "subscription_running_totals" in st.session_state.model_data:
-            create_custom_cumulative_subscribers_table(filtered_stakeholders, show_monthly)
+        with st.expander("📊 Cumulative Active Subscribers (After Churn)", expanded=False):
+            st.info("💡 This shows the running total of active subscribers after applying churn each month. Updates automatically as you change values above.")
+            
+            # Create read-only table for running totals using custom HTML format
+            if "subscription_running_totals" in st.session_state.model_data:
+                create_custom_cumulative_subscribers_table(filtered_stakeholders, show_monthly)
         
     else:
         st.warning("⚠️ No stakeholders selected. Please choose stakeholders from the filter above.")
 
 with tab2:
-    st.markdown('<div class="section-header">💳 Transactional Revenue (Volume × Price × Referral %)</div>', unsafe_allow_html=True)
+    with st.expander("📊 Transaction Volume Per Month", expanded=False):
+        create_transactional_table_with_years("Transaction Volume", "transactional_volume", default_value=0.0, format_type="number", show_monthly=show_monthly)
     
-    st.markdown("**📊 Transaction Volume Per Month:**")
-    create_transactional_table_with_years("Transaction Volume", "transactional_volume", default_value=0.0, format_type="number", show_monthly=show_monthly)
+    with st.expander("💰 Average Price Per Transaction", expanded=False):
+        create_transactional_table_with_years("Price Per Transaction", "transactional_price", default_value=0.0, format_type="currency", show_monthly=show_monthly)
     
-    st.markdown("---")
-    
-    st.markdown("**💰 Average Price Per Transaction:**")
-    create_transactional_table_with_years("Price Per Transaction", "transactional_price", default_value=0.0, format_type="currency", show_monthly=show_monthly)
-    
-    st.markdown("---")
-    
-    st.markdown("**🎯 Referral Fee Percentage (%):**")
-    create_transactional_table_with_years("Referral Fee %", "transactional_referral_fee", default_value=0.0, format_type="percentage", show_monthly=show_monthly)
+    with st.expander("🎯 Referral Fee Percentage (%)", expanded=False):
+        create_transactional_table_with_years("Referral Fee %", "transactional_referral_fee", default_value=0.0, format_type="percentage", show_monthly=show_monthly)
 
 with tab3:
-    st.markdown('<div class="section-header">🚀 Implementation Revenue (One-Time Fees)</div>', unsafe_allow_html=True)
-    
     if len(filtered_stakeholders) > 0:
-        st.markdown("**🆕 New Implementation Projects Per Month:**")
-        create_stakeholder_table_with_years("New Implementations", "implementation_new_customers", filtered_stakeholders, default_value=0.0, format_type="number", show_monthly=show_monthly)
+        with st.expander("🆕 New Implementation Projects Per Month", expanded=False):
+            create_stakeholder_table_with_years("New Implementations", "implementation_new_customers", filtered_stakeholders, default_value=0.0, format_type="number", show_monthly=show_monthly)
         
-        st.markdown("---")
-        
-        st.markdown("**💵 Implementation Fee Per Project:**")
-        create_stakeholder_table_with_years("Implementation Fees", "implementation_pricing", filtered_stakeholders, default_value=0.0, format_type="currency", show_monthly=show_monthly)
+        with st.expander("💵 Implementation Fee Per Project", expanded=False):
+            create_stakeholder_table_with_years("Implementation Fees", "implementation_pricing", filtered_stakeholders, default_value=0.0, format_type="currency", show_monthly=show_monthly)
         
     else:
         st.warning("⚠️ No stakeholders selected. Please choose stakeholders from the filter above.")
 
 with tab4:
-    st.markdown('<div class="section-header">🔧 Maintenance Revenue (One-Time Fees)</div>', unsafe_allow_html=True)
-    
     if len(filtered_stakeholders) > 0:
-        st.markdown("**🔧 Total Maintenance Contracts Per Month:**")
-        create_stakeholder_table_with_years("New Maintenance", "maintenance_new_customers", filtered_stakeholders, default_value=0.0, format_type="number", show_monthly=show_monthly)
+        with st.expander("🔧 Total Maintenance Contracts Per Month", expanded=False):
+            create_stakeholder_table_with_years("New Maintenance", "maintenance_new_customers", filtered_stakeholders, default_value=0.0, format_type="number", show_monthly=show_monthly)
         
-        st.markdown("---")
-        
-        st.markdown("**💵 Maintenance Fee Per Contract:**")
-        create_stakeholder_table_with_years("Maintenance Fees", "maintenance_pricing", filtered_stakeholders, default_value=0.0, format_type="currency", show_monthly=show_monthly)
+        with st.expander("💵 Maintenance Fee Per Contract", expanded=False):
+            create_stakeholder_table_with_years("Maintenance Fees", "maintenance_pricing", filtered_stakeholders, default_value=0.0, format_type="currency", show_monthly=show_monthly)
         
     else:
         st.warning("⚠️ No stakeholders selected. Please choose stakeholders from the filter above.")
@@ -1389,7 +1299,6 @@ for month in months:
         for cat in revenue_categories
     )
 
-st.markdown("**Total Revenue:**")
 create_custom_total_row(total_revenue, "Total Revenue", show_monthly)
 
 # Summary metrics
@@ -1437,10 +1346,165 @@ with col4:
 # Auto-save notification
 st.info("💡 Data automatically calculates all revenue streams and updates the Income Statement when you save! Use tabs to manage different revenue types.")
 
-# Footer
 st.markdown("---")
+
+# DATA MANAGEMENT
+st.markdown('<div class="section-header">💾 Data Management</div>', unsafe_allow_html=True)
+
+col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
+
+with col1:
+    if st.button("💾 Save Data", type="primary", use_container_width=True):
+        calculate_all_revenue()
+        if save_data(st.session_state.model_data):
+            st.success("✅ Data saved successfully!")
+        else:
+            st.error("❌ Failed to save data")
+
+with col2:
+    if st.button("📂 Load Data", type="primary", use_container_width=True):
+        st.session_state.model_data = load_data()
+        st.success("✅ Data loaded successfully!")
+        st.rerun()
+
+with col3:
+    # Create Excel export data
+    try:
+        import tempfile
+        import os
+        from datetime import datetime
+        
+        # Generate timestamp and filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"SHAED_Revenue_Assumptions_{timestamp}.xlsx"
+        
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+            temp_path = tmp_file.name
+        
+        # Create Excel writer
+        with pd.ExcelWriter(temp_path, engine='openpyxl') as writer:
+            # Export Subscription Revenue Data
+            if "subscription_revenue" in st.session_state.model_data:
+                subscription_data = st.session_state.model_data["subscription_revenue"]
+                
+                # Export subscribers by stakeholder
+                if "subscribers" in subscription_data:
+                    subscribers_df = pd.DataFrame(subscription_data["subscribers"]).T
+                    subscribers_df.index.name = 'Month'
+                    subscribers_df.to_excel(writer, sheet_name='Subscribers by Stakeholder')
+                
+                # Export pricing by stakeholder
+                if "pricing" in subscription_data:
+                    pricing_df = pd.DataFrame(subscription_data["pricing"]).T
+                    pricing_df.index.name = 'Month'
+                    pricing_df.to_excel(writer, sheet_name='Pricing by Stakeholder')
+                
+                # Export cumulative subscribers
+                if "cumulative_subscribers" in subscription_data:
+                    cumulative_df = pd.DataFrame(subscription_data["cumulative_subscribers"]).T
+                    cumulative_df.index.name = 'Month'
+                    cumulative_df.to_excel(writer, sheet_name='Cumulative Subscribers')
+            
+            # Export Transactional Revenue Data
+            if "transactional_revenue" in st.session_state.model_data:
+                transactional_data = st.session_state.model_data["transactional_revenue"]
+                
+                # Export transactions per subscriber
+                if "transactions_per_subscriber" in transactional_data:
+                    trans_df = pd.DataFrame(transactional_data["transactions_per_subscriber"]).T
+                    trans_df.index.name = 'Month'
+                    trans_df.to_excel(writer, sheet_name='Transactions per Subscriber')
+                
+                # Export price per transaction
+                if "price_per_transaction" in transactional_data:
+                    price_df = pd.DataFrame(transactional_data["price_per_transaction"]).T
+                    price_df.index.name = 'Month'
+                    price_df.to_excel(writer, sheet_name='Price per Transaction')
+            
+            # Export Total Revenue Data
+            if "revenue" in st.session_state.model_data:
+                revenue_data = st.session_state.model_data["revenue"]
+                # Filter to only include the correct revenue categories
+                filtered_revenue_data = {}
+                revenue_categories = ["Subscription", "Transactional", "Implementation", "Maintenance"]
+                for category in revenue_categories:
+                    if category in revenue_data:
+                        filtered_revenue_data[category] = revenue_data[category]
+                
+                if filtered_revenue_data:
+                    revenue_df = pd.DataFrame(filtered_revenue_data).T
+                    revenue_df.index.name = 'Month'
+                    revenue_df.to_excel(writer, sheet_name='Total Revenue')
+            
+            # Export Revenue Summary by Year
+            years_dict = group_months_by_year(months)
+            revenue_summary = []
+            for year in sorted(years_dict.keys()):
+                year_months = years_dict[year]
+                
+                # Calculate yearly totals
+                year_subscription = sum(
+                    st.session_state.model_data.get("revenue", {}).get("Subscription", {}).get(month, 0)
+                    for month in year_months
+                )
+                year_transactional = sum(
+                    st.session_state.model_data.get("revenue", {}).get("Transactional", {}).get(month, 0)
+                    for month in year_months
+                )
+                year_implementation = sum(
+                    st.session_state.model_data.get("revenue", {}).get("Implementation", {}).get(month, 0)
+                    for month in year_months
+                )
+                year_maintenance = sum(
+                    st.session_state.model_data.get("revenue", {}).get("Maintenance", {}).get(month, 0)
+                    for month in year_months
+                )
+                year_total = year_subscription + year_transactional + year_implementation + year_maintenance
+                
+                revenue_summary.append({
+                    'Year': year,
+                    'Subscription Revenue': year_subscription,
+                    'Transactional Revenue': year_transactional,
+                    'Implementation Revenue': year_implementation,
+                    'Maintenance Revenue': year_maintenance,
+                    'Total Revenue': year_total
+                })
+            
+            if revenue_summary:
+                summary_df = pd.DataFrame(revenue_summary)
+                summary_df.to_excel(writer, sheet_name='Revenue Summary by Year', index=False)
+        
+        # Read the file data for download
+        with open(temp_path, 'rb') as f:
+            excel_data = f.read()
+        
+        # Clean up temp file
+        os.unlink(temp_path)
+        
+        # Direct download button that triggers immediately
+        st.download_button(
+            label="📊 Export Excel",
+            data=excel_data,
+            file_name=filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            use_container_width=True
+        )
+        
+    except ImportError:
+        # Fallback button if openpyxl not available
+        if st.button("📊 Export Excel", type="primary", use_container_width=True):
+            st.error("❌ Excel export requires openpyxl. Please install: pip install openpyxl")
+    except Exception as e:
+        # Fallback button if there's an error
+        if st.button("📊 Export Excel", type="primary", use_container_width=True):
+            st.error(f"❌ Error creating Excel file: {str(e)}")
+
+# Footer
 st.markdown("""
-<div style="text-align: center; color: #666; padding: 1rem;">
-    <strong>SHAED Financial Model - All Revenue Streams</strong> | Powering the future of mobility
+<div style="text-align: center; color: #666; padding: 2rem; margin-top: 3rem; border-top: 1px solid #e0e0e0;">
+    <strong>SHAED Financial Model - Revenue Assumptions</strong> | Powering the future of mobility<br>
+    <small>© 2025 SHAED - All rights reserved</small>
 </div>
 """, unsafe_allow_html=True)

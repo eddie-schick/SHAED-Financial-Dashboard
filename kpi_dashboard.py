@@ -213,7 +213,8 @@ st.markdown("""
     }
     
     /* Green buttons for Data Management */
-    .stButton > button {
+    .stButton > button,
+    .stDownloadButton > button {
         background-color: #00D084 !important;
         color: white !important;
         border: none !important;
@@ -222,13 +223,15 @@ st.markdown("""
         transition: all 0.3s ease !important;
     }
     
-    .stButton > button:hover {
+    .stButton > button:hover,
+    .stDownloadButton > button:hover {
         background-color: #00B574 !important;
         transform: translateY(-2px) !important;
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2) !important;
     }
     
-    .stButton > button:active {
+    .stButton > button:active,
+    .stDownloadButton > button:active {
         transform: translateY(0) !important;
     }
 </style>
@@ -312,7 +315,16 @@ try:
 except ValueError:
     default_year_index = 0  # Default to 2025 if previous year not in options
 
-col1, col2, col3, col4 = st.columns([2, 2, 2, 3])
+# Define all stakeholders from revenue assumptions (exact match)
+all_stakeholders = [
+    "Equipment Manufacturer", "Dealership", "Corporate", "Charging as a Service",
+    "Charging Hardware", "Depot", "End User", "Infrastructure Partner",
+    "Finance Partner", "Fleet Management Company", "Grants", "Logistics",
+    "Non Customer", "OEM", "Service", "Technology Partner",
+    "Upfitter/Distributor", "Utility/Energy Company", "Insurance Company", "Consultant"
+]
+
+col1, col2, col3, col4, col5 = st.columns([0.75, 0.75, 0.75, 0.75, 2.0])
 with col1:
     selected_year = st.selectbox(
         "Select Year",
@@ -347,20 +359,10 @@ with col3:
         calculation_type = st.selectbox(
             "Calculation Type",
             ["MTD", "YTD"],
-            index=1,
-            help="MTD = Month-to-Date, YTD = Year-to-Date"
+            index=1
         )
     else:
         calculation_type = "Full Period"
-
-# Define all stakeholders from revenue assumptions (exact match)
-all_stakeholders = [
-    "Equipment Manufacturer", "Dealership", "Corporate", "Charging as a Service",
-    "Charging Hardware", "Depot", "End User", "Infrastructure Partner",
-    "Finance Partner", "Fleet Management Company", "Grants", "Logistics",
-    "Non Customer", "OEM", "Service", "Technology Partner",
-    "Upfitter/Distributor", "Utility/Energy Company", "Insurance Company", "Consultant"
-]
 
 with col4:
     # Customer type filter dropdown
@@ -368,8 +370,7 @@ with col4:
     selected_customer_filter = st.selectbox(
         "Filter Customer Type",
         options=customer_filter_options,
-        index=0,
-        help="Select a specific customer type or view all types"
+        index=0
     )
     
     # Set selected stakeholders based on dropdown selection
@@ -1542,7 +1543,7 @@ else:
             existing_budget[category_key] = 0
 
 # Budget input section
-st.markdown("### 📝 Budget Input")
+st.markdown("Budget Input:")
 
 # Budget input based on selected method
 if budget_input_method == "Manual Entry":
@@ -1718,7 +1719,7 @@ if budget_input_method == "Manual Entry":
                 )
 
 # Budget vs Actual Analysis
-st.markdown("### 📊 Budget vs Actual Analysis")
+st.markdown("Budget vs Actual Analysis:")
 
 # Get budget values
 budget_values = st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]
@@ -1827,7 +1828,6 @@ comparison_data.append({
 df_comparison = pd.DataFrame(comparison_data)
 
 # Display the comparison table with formatting
-st.markdown(f"**Period:** {budget_selected_month if budget_period == 'MTD' else f'{budget_selected_year} YTD'}")
 
 # Custom function to create income statement style tables
 def create_budget_variance_table(comparison_data):
@@ -1951,7 +1951,7 @@ def create_budget_variance_table(comparison_data):
 if st.session_state.model_data["budget_data"]["monthly_budgets"].get(budget_key):
     budget_total = sum([v for k, v in st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key].items() if isinstance(v, (int, float))])
     if budget_total == 0:
-        st.warning("⚠️ All budget values are $0. Please enter budget amounts in the sections above.")
+        pass
 
 # Budget vs Actual Table (Collapsible)
 with st.expander("📊 Budget vs Actual Table", expanded=False):
@@ -2108,7 +2108,7 @@ for idx, milestone in enumerate(milestones):
 st.markdown("---")
 st.markdown('<div class="section-header">💾 Data Management</div>', unsafe_allow_html=True)
 
-col1, col2, col3 = st.columns([1, 1, 3])
+col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
 
 with col1:
     if st.button("💾 Save Data", type="primary", use_container_width=True):
@@ -2131,6 +2131,132 @@ with col2:
                 st.warning("⚠️ No saved data file found.")
         except Exception as e:
             st.error(f"❌ Error loading data: {str(e)}")
+
+with col3:
+    # Create Excel export data
+    try:
+        import tempfile
+        import os
+        from datetime import datetime
+        
+        # Generate timestamp and filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"SHAED_Financial_Data_{timestamp}.xlsx"
+        
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+            temp_path = tmp_file.name
+        
+        # Create Excel writer
+        with pd.ExcelWriter(temp_path, engine='openpyxl') as writer:
+            # Export Revenue Data
+            revenue_data = st.session_state.model_data.get("revenue", {})
+            if revenue_data:
+                revenue_df = pd.DataFrame(revenue_data).T
+                revenue_df.index.name = 'Month'
+                revenue_df.to_excel(writer, sheet_name='Revenue')
+            
+            # Export Customer Data
+            customer_data = st.session_state.model_data.get("subscription_running_totals", {})
+            if customer_data:
+                customer_df = pd.DataFrame(customer_data).T
+                customer_df.index.name = 'Month'
+                customer_df.to_excel(writer, sheet_name='Customers')
+            
+            # Export Pricing Data
+            pricing_data = st.session_state.model_data.get("subscription_pricing", {})
+            if pricing_data:
+                pricing_df = pd.DataFrame(pricing_data).T
+                pricing_df.index.name = 'Month'
+                pricing_df.to_excel(writer, sheet_name='Pricing')
+            
+            # Export Churn Rates
+            churn_data = st.session_state.model_data.get("subscription_churn_rates", {})
+            if churn_data:
+                churn_df = pd.DataFrame(churn_data).T
+                churn_df.index.name = 'Month'
+                churn_df.to_excel(writer, sheet_name='Churn Rates')
+            
+            # Export Liquidity Data
+            liquidity_data = st.session_state.model_data.get("liquidity_data", {})
+            if liquidity_data:
+                # Revenue sheet in liquidity
+                if 'revenue' in liquidity_data:
+                    liq_revenue_df = pd.DataFrame({'Revenue': liquidity_data['revenue']})
+                    liq_revenue_df.index.name = 'Month'
+                    liq_revenue_df.to_excel(writer, sheet_name='Liquidity Revenue')
+                
+                # Expenses sheet
+                if 'expenses' in liquidity_data:
+                    expenses_df = pd.DataFrame(liquidity_data['expenses']).T
+                    expenses_df.index.name = 'Month'
+                    expenses_df.to_excel(writer, sheet_name='Expenses')
+                
+                # Other cash items
+                cash_items_data = {}
+                for key in ['other_cash_receipts', 'investment']:
+                    if key in liquidity_data:
+                        cash_items_data[key.replace('_', ' ').title()] = liquidity_data[key]
+                
+                if cash_items_data:
+                    cash_items_df = pd.DataFrame(cash_items_data).T
+                    cash_items_df.index.name = 'Month'
+                    cash_items_df.to_excel(writer, sheet_name='Other Cash Items')
+            
+            # Export KPI Summary for current selection
+            kpi_summary_data = []
+            for month in months[:12]:  # Last 12 months for summary
+                total_rev = calculate_total_revenue(month)
+                arr = calculate_arr(month)
+                cash_bal = calculate_cash_balance(month)
+                burn = calculate_burn_rate(month)
+                customers, arpc = calculate_customer_metrics(month)
+                
+                kpi_summary_data.append({
+                    'Month': month,
+                    'Total Revenue': total_rev,
+                    'ARR': arr,
+                    'Cash Balance': cash_bal,
+                    'Burn Rate': burn,
+                    'Total Customers': customers,
+                    'ARPC': arpc,
+                    'Gross Margin %': calculate_gross_margin(month)
+                })
+            
+            if kpi_summary_data:
+                kpi_df = pd.DataFrame(kpi_summary_data)
+                kpi_df.to_excel(writer, sheet_name='KPI Summary', index=False)
+            
+            # Export Budget vs Actual Analysis if available
+            if comparison_data:
+                budget_df = pd.DataFrame(comparison_data)
+                budget_df.to_excel(writer, sheet_name='Budget vs Actual', index=False)
+        
+        # Read the file data for download
+        with open(temp_path, 'rb') as f:
+            excel_data = f.read()
+        
+        # Clean up temp file
+        os.unlink(temp_path)
+        
+        # Direct download button that triggers immediately
+        st.download_button(
+            label="📊 Export Excel",
+            data=excel_data,
+            file_name=filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            use_container_width=True
+        )
+        
+    except ImportError:
+        # Fallback button if openpyxl not available
+        if st.button("📊 Export Excel", type="primary", use_container_width=True):
+            st.error("❌ Excel export requires openpyxl. Please install: pip install openpyxl")
+    except Exception as e:
+        # Fallback button if there's an error
+        if st.button("📊 Export Excel", type="primary", use_container_width=True):
+            st.error(f"❌ Error creating Excel file: {str(e)}")
 
 # Footer
 st.markdown("""

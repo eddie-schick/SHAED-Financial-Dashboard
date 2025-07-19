@@ -284,7 +284,7 @@ with feat_col3:
     st.markdown("""
     #### 💾 Data Management
     - Save and load functionality
-    - JSON-based data persistence
+    - Back end data persistence
     - Easy data export/import
     """)
 

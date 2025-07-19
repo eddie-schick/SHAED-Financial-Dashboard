@@ -3,6 +3,7 @@ import pandas as pd
 import json
 import os
 from datetime import datetime, date
+import plotly.graph_objects as go
 
 # Payroll integration functions
 def is_employee_active_for_month(emp_data, month_str):
@@ -217,7 +218,7 @@ def update_liquidity_with_payroll(effective_month=None):
 
 # Configure page
 st.set_page_config(
-    page_title="SHAED Finance Dashboard - Liquidity Forecast",
+    page_title="Liquidity",
     page_icon="💰",
     layout="wide"
 )
@@ -278,7 +279,8 @@ st.markdown("""
     }
     
     /* Button styling */
-    .stButton > button {
+    .stButton > button,
+    .stDownloadButton > button {
         background: linear-gradient(90deg, #00D084 0%, #00B574 100%);
         color: white;
         border: none;
@@ -289,9 +291,30 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     }
     
-    .stButton > button:hover {
+    .stButton > button:hover,
+    .stDownloadButton > button:hover {
         transform: translateY(-2px);
         box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+    }
+    
+    /* Secondary button styling to match primary exactly */
+    .stButton > button[kind="secondary"] {
+        background: linear-gradient(90deg, #00D084 0%, #00B574 100%) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 8px !important;
+        padding: 0.5rem 1rem !important;
+        font-weight: 600 !important;
+        transition: all 0.3s ease !important;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+    }
+    
+    .stButton > button[kind="secondary"]:hover {
+        background: linear-gradient(90deg, #00D084 0%, #00B574 100%) !important;
+        color: white !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2) !important;
+        border: none !important;
     }
     
     /* Info boxes */
@@ -1081,7 +1104,7 @@ def create_expense_table_with_years(categories, show_monthly=True):
     
     df = pd.DataFrame(table_data)
     
-    # Create column config with optimal 90px sizing
+    # Create column config with 90px sizing (matching revenue_assumptions.py)
     if show_monthly:
         column_config = {
             "Expense Category": st.column_config.TextColumn("Expense Category", disabled=True, width="medium", pinned=True),
@@ -1089,14 +1112,14 @@ def create_expense_table_with_years(categories, show_monthly=True):
         }
         for col in columns[1:-1]:  # Skip first and last columns
             if "Total" in col:
-                column_config[col] = st.column_config.TextColumn(col, width="small", disabled=True)
+                column_config[col] = st.column_config.TextColumn(col, width=90, disabled=True)
             else:
-                column_config[col] = st.column_config.NumberColumn(col, width="small", format="%.0f")
+                column_config[col] = st.column_config.NumberColumn(col, width=90, format="%.0f")
     else:
         column_config = {
             "Expense Category": st.column_config.TextColumn("Expense Category", disabled=True, width="medium", pinned=True),
             "Classification": st.column_config.TextColumn("Classification", disabled=True, width="medium"),
-            **{col: st.column_config.TextColumn(col, width="small", disabled=True) for col in columns[1:-1]}
+            **{col: st.column_config.TextColumn(col, width=70, disabled=True) for col in columns[1:-1]}
         }
     
     # Display editable table
@@ -1354,7 +1377,7 @@ auto_sync_revenue_from_income_statement()
 # update_liquidity_with_payroll()
 
 # View toggle
-view_col1, view_col2 = st.columns([1, 3])
+view_col1, view_col2 = st.columns([0.75, 3.25])
 with view_col1:
     view_mode = st.selectbox(
         "View Mode:",
@@ -1363,7 +1386,7 @@ with view_col1:
     )
 
 with view_col2:
-    balance_col1, balance_col2 = st.columns([1, 2])
+    balance_col1, balance_col2 = st.columns([0.69, 2.31])
     
     with balance_col1:
         starting_balance = st.number_input(
@@ -1423,20 +1446,20 @@ for i, category in enumerate(cash_categories):
 
 cash_df = pd.DataFrame(cash_table_data)
 
-# Create column config for cash flow with optimal 90px sizing
+# Create column config for cash flow with 90px sizing (matching revenue_assumptions.py)
 if show_monthly:
     cash_column_config = {
         "Cash Flow Item": st.column_config.TextColumn("Cash Flow Item", disabled=True, width="medium", pinned=True),
     }
     for col in columns[1:]:
         if "Total" in col:
-            cash_column_config[col] = st.column_config.TextColumn(col, width="small", disabled=True)
+            cash_column_config[col] = st.column_config.TextColumn(col, width=90, disabled=True)
         else:
-            cash_column_config[col] = st.column_config.NumberColumn(col, width="small", format="%.0f")
+            cash_column_config[col] = st.column_config.NumberColumn(col, width=90, format="%.0f")
 else:
     cash_column_config = {
         "Cash Flow Item": st.column_config.TextColumn("Cash Flow Item", disabled=True, width="medium", pinned=True),
-        **{col: st.column_config.TextColumn(col, width="small", disabled=True) for col in columns[1:]}
+        **{col: st.column_config.TextColumn(col, width=70, disabled=True) for col in columns[1:]}
     }
 
 # Display editable cash flow table
@@ -1461,10 +1484,10 @@ for i, data_key in enumerate(cash_data_keys):
                     st.session_state.model_data["liquidity_data"][data_key][month] = float(value) if value != '' else 0
 
 # EXPENSES SECTION
-st.markdown('<div class="section-header">💸 Expenses</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header">💸 Cash Disbursements</div>', unsafe_allow_html=True)
 
 # Expense Management Dropdown
-mgmt_col1, mgmt_col2, mgmt_col3, mgmt_col4 = st.columns([1, 1, 1, 1])
+mgmt_col1, mgmt_col2, mgmt_col3, mgmt_col4 = st.columns([0.75, 1.083, 1.083, 1.083])
 
 with mgmt_col1:
     management_action = st.selectbox(
@@ -1475,7 +1498,7 @@ with mgmt_col1:
 
 # Display relevant section based on selection
 if management_action == "Add New Expense Category":
-    exp_col1, exp_col2, exp_col3, exp_col4 = st.columns([1, 1, 1, 1])
+    exp_col1, exp_col2, exp_col3, exp_col4 = st.columns([0.75, 0.75, 1.25, 1.25])
 
     with exp_col1:
         new_category = st.text_input("Category Name:", key="new_category_input", placeholder="e.g., Office Supplies")
@@ -1510,7 +1533,7 @@ if management_action == "Add New Expense Category":
                 st.rerun()
 
 elif management_action == "Delete Expense Category":
-    delete_col1, delete_col2, delete_col3, delete_col4 = st.columns([1, 1, 1, 1])
+    delete_col1, delete_col2, delete_col3, delete_col4 = st.columns([0.75, 1.083, 1.083, 1.083])
 
     with delete_col1:
         # Get editable categories only
@@ -1538,6 +1561,9 @@ elif management_action == "Delete Expense Category":
                     del st.session_state.model_data["liquidity_data"]["expense_categories"][category_to_delete]
                 if category_to_delete in st.session_state.model_data["liquidity_data"]["expenses"]:
                     del st.session_state.model_data["liquidity_data"]["expenses"][category_to_delete]
+                # Remove from category_order list
+                if "category_order" in st.session_state.model_data["liquidity_data"] and category_to_delete in st.session_state.model_data["liquidity_data"]["category_order"]:
+                    st.session_state.model_data["liquidity_data"]["category_order"].remove(category_to_delete)
                 st.success(f"Deleted '{category_to_delete}' successfully!")
                 st.session_state.confirm_delete = None
                 st.rerun()
@@ -1553,6 +1579,9 @@ elif management_action == "Delete Expense Category":
                     del st.session_state.model_data["liquidity_data"]["expense_categories"][category_to_delete]
                 if category_to_delete in st.session_state.model_data["liquidity_data"]["expenses"]:
                     del st.session_state.model_data["liquidity_data"]["expenses"][category_to_delete]
+                # Remove from category_order list
+                if "category_order" in st.session_state.model_data["liquidity_data"] and category_to_delete in st.session_state.model_data["liquidity_data"]["category_order"]:
+                    st.session_state.model_data["liquidity_data"]["category_order"].remove(category_to_delete)
                 st.success(f"Deleted '{category_to_delete}' successfully!")
                 st.session_state.confirm_delete = None
                 st.rerun()
@@ -1584,7 +1613,7 @@ elif management_action == "Reorder Expense Categories":
         st.session_state.selected_reorder_category = current_order[0] if current_order else None
 
     # Create interface with grouped buttons
-    reorder_col1, reorder_col2, reorder_col3, reorder_col4 = st.columns([1, 1, 1, 1])
+    reorder_col1, reorder_col2, reorder_col3, reorder_col4 = st.columns([0.75, 1.083, 1.083, 1.083])
 
     with reorder_col1:
         if current_order:
@@ -1637,7 +1666,7 @@ elif management_action == "Reorder Expense Categories":
 # Get current expense categories in the specified order
 expense_categories = st.session_state.model_data["liquidity_data"]["category_order"]
 
-st.info("💡 Payroll & Contractors will populate from the Headcount dashboard once synched")
+st.info("💡 Payroll & Contractors will populate from the Headcount dashboard once synched. Expense data automatically flows to SG&A section of Income Statement")
 
 # Create expense table
 if expense_categories:
@@ -1652,16 +1681,16 @@ st.markdown('<div class="section-header">🔍 Sensitivity Analysis</div>', unsaf
 st.info("🎯 Adjust revenue and expenses starting from a specific month to see how changes impact your cash flow and key metrics")
 
 # Sensitivity controls
-sens_col1, sens_col2, sens_col3 = st.columns(3)
+sens_col1, sens_col2, sens_col3 = st.columns([1.125, 1.125, 0.75])
 
 # Initialize reset counter
 if "sensitivity_reset_counter" not in st.session_state:
     st.session_state.sensitivity_reset_counter = 0
 
 # Reset button (placed before widgets)
-reset_col1, reset_col2, reset_col3 = st.columns([1, 1, 1])
-with reset_col2:
-    if st.button("🔄 Reset Sensitivity", help="Reset sliders to 0% and effective date to start", use_container_width=True):
+reset_col1, reset_col2 = st.columns([0.75, 3.25])
+with reset_col1:
+    if st.button("🔄 Reset Sensitivity", help="Reset sliders to 0% and effective date to start", use_container_width=True, type="secondary"):
         # Increment reset counter to force widget recreation
         st.session_state.sensitivity_reset_counter += 1
         st.rerun()
@@ -1670,7 +1699,7 @@ with reset_col2:
 reset_suffix = f"_{st.session_state.sensitivity_reset_counter}"
 
 with sens_col1:
-    st.markdown("**💰 Revenue Adjustment**")
+    st.markdown("Revenue Adjustment")
     revenue_adjustment = st.slider(
         "Revenue Change (%)",
         min_value=-100,
@@ -1682,7 +1711,7 @@ with sens_col1:
     )
     
 with sens_col2:
-    st.markdown("**💸 Expense Adjustment**")
+    st.markdown("Expense Adjustment")
     expense_adjustment = st.slider(
         "Expense Change (%)",
         min_value=-100,
@@ -1694,11 +1723,19 @@ with sens_col2:
     )
 
 with sens_col3:
-    st.markdown("**📅 Effective Date**")
+    st.markdown("Effective Date")
+    # Calculate current month as default
+    current_date = datetime.now()
+    current_month_str = current_date.strftime('%b %Y')
+    try:
+        current_month_index = months.index(current_month_str)
+    except ValueError:
+        current_month_index = 0  # Fallback to first month if current month not in list
+    
     effective_month = st.selectbox(
         "Start adjustments from:",
         options=months,
-        index=0,
+        index=current_month_index,
         help="Adjustments will only apply starting from this month",
         key=f"sensitivity_effective_month{reset_suffix}"
     )
@@ -1710,40 +1747,7 @@ expense_multiplier = 1 + (expense_adjustment / 100)
 # Get effective month index
 effective_month_index = months.index(effective_month)
 
-# Show sensitivity impact
-if revenue_adjustment != 0 or expense_adjustment != 0 or effective_month != months[0]:
-    sens_impact_col1, sens_impact_col2, sens_impact_col3 = st.columns(3)
-    
-    with sens_impact_col1:
-        color = "#00D084" if revenue_adjustment >= 0 else "#dc3545"
-        st.markdown(f"""
-        <div class="metric-container">
-            <h4 style="color: #00D084; margin: 0;">Revenue Impact</h4>
-            <h3 style="margin: 0.5rem 0 0 0; color: {color};">{revenue_adjustment:+}%</h3>
-            <p style="margin: 0; font-size: 0.8rem;">From {effective_month}</p>
-        </div>
-        """, unsafe_allow_html=True)
 
-    with sens_impact_col2:
-        color = "#dc3545" if expense_adjustment > 0 else "#00D084"
-        st.markdown(f"""
-        <div class="metric-container">
-            <h4 style="color: #00D084; margin: 0;">Expense Impact</h4>
-            <h3 style="margin: 0.5rem 0 0 0; color: {color};">{expense_adjustment:+}%</h3>
-            <p style="margin: 0; font-size: 0.8rem;">From {effective_month}</p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with sens_impact_col3:
-        net_adjustment = revenue_adjustment - expense_adjustment
-        color = "#00D084" if net_adjustment >= 0 else "#dc3545"
-        st.markdown(f"""
-        <div class="metric-container">
-            <h4 style="color: #00D084; margin: 0;">Net Impact</h4>
-            <h3 style="margin: 0.5rem 0 0 0; color: {color};">{net_adjustment:+}%</h3>
-            <p style="margin: 0; font-size: 0.8rem;">From {effective_month}</p>
-        </div>
-        """, unsafe_allow_html=True)
 
 # CASH FLOW SUMMARY
 st.markdown('<div class="section-header">📊 Cash Flow Summary</div>', unsafe_allow_html=True)
@@ -1803,11 +1807,37 @@ st.markdown("---")
 # KEY METRICS
 st.markdown('<div class="section-header">📈 Key Metrics</div>', unsafe_allow_html=True)
 
-# Calculate summary metrics using adjusted values
-total_inflows_6yr = sum(total_inflows.values())
-total_outflows_6yr = sum(total_outflows.values())
-net_cash_flow_6yr = sum(adjusted_monthly_cash_flow.values())
-ending_balance = adjusted_cumulative_balance[months[-1]]
+# Add dropdown for time period selection
+metrics_col1, metrics_col2 = st.columns([0.75, 3.25])
+with metrics_col1:
+    # Calculate default index based on current year
+    current_year = str(datetime.now().year)
+    metrics_options = ["2025", "2026", "2027", "2028", "2029", "2030", "All Years"]
+    try:
+        default_metrics_index = metrics_options.index(current_year)
+    except ValueError:
+        default_metrics_index = 0  # Fallback to first option if current year not in list
+    
+    metrics_period = st.selectbox(
+        "Select time period for metrics:",
+        options=metrics_options,
+        index=default_metrics_index,
+        key="metrics_period_select"
+    )
+
+# Determine which months to include based on selection
+if metrics_period == "All Years":
+    # Use all months
+    filtered_months = months
+else:
+    # Filter for specific year
+    filtered_months = [month for month in months if metrics_period in month]
+
+# Calculate summary metrics using adjusted values for selected period
+total_inflows_period = sum(total_inflows.get(month, 0) for month in filtered_months)
+total_outflows_period = sum(total_outflows.get(month, 0) for month in filtered_months)
+net_cash_flow_period = sum(adjusted_monthly_cash_flow.get(month, 0) for month in filtered_months)
+ending_balance = adjusted_cumulative_balance[filtered_months[-1]]
 
 # Find when we run out of money (cash balance goes negative) using adjusted values
 cash_out_month = None
@@ -1821,25 +1851,25 @@ col1, col2, col3, col4, col5 = st.columns(5)
 with col1:
     st.markdown(f"""
     <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">Total Inflows (6yr)</h4>
-        <h2 style="margin: 0.5rem 0 0 0;">${total_inflows_6yr:,.0f}</h2>
+        <h4 style="color: #00D084; margin: 0;">Total Inflows</h4>
+        <h2 style="margin: 0.5rem 0 0 0;">${total_inflows_period:,.0f}</h2>
     </div>
     """, unsafe_allow_html=True)
 
 with col2:
     st.markdown(f"""
     <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">Total Outflows (6yr)</h4>
-        <h2 style="margin: 0.5rem 0 0 0;">${abs(total_outflows_6yr):,.0f}</h2>
+        <h4 style="color: #00D084; margin: 0;">Total Outflows</h4>
+        <h2 style="margin: 0.5rem 0 0 0;">${abs(total_outflows_period):,.0f}</h2>
     </div>
     """, unsafe_allow_html=True)
 
 with col3:
-    color = "#00D084" if net_cash_flow_6yr >= 0 else "#dc3545"
+    color = "#00D084" if net_cash_flow_period >= 0 else "#dc3545"
     st.markdown(f"""
     <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">Net Cash Flow (6yr)</h4>
-        <h2 style="margin: 0.5rem 0 0 0; color: {color};">${net_cash_flow_6yr:,.0f}</h2>
+        <h4 style="color: #00D084; margin: 0;">Net Cash Flow</h4>
+        <h2 style="margin: 0.5rem 0 0 0; color: {color};">${net_cash_flow_period:,.0f}</h2>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1847,7 +1877,7 @@ with col4:
     color = "#00D084" if ending_balance >= 0 else "#dc3545"
     st.markdown(f"""
     <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">Ending Balance (Dec 2030)</h4>
+        <h4 style="color: #00D084; margin: 0;">Ending Balance</h4>
         <h2 style="margin: 0.5rem 0 0 0; color: {color};">${ending_balance:,.0f}</h2>
     </div>
     """, unsafe_allow_html=True)
@@ -1867,32 +1897,151 @@ with col5:
     </div>
     """, unsafe_allow_html=True)
 
-# Monthly breakdown by year
-years_dict = group_months_by_year(months)
-yearly_cols = st.columns(len(years_dict))
+st.markdown("---")
 
-for i, year in enumerate(sorted(years_dict.keys())):
-    with yearly_cols[i]:
-        year_inflows = sum(total_inflows.get(month, 0) for month in years_dict[year])
-        year_outflows = sum(total_outflows.get(month, 0) for month in years_dict[year])
-        year_net = sum(monthly_cash_flow.get(month, 0) for month in years_dict[year])
-        year_ending = cumulative_balance.get(years_dict[year][-1], 0)
-        
-        year_color = "#00D084" if year_net >= 0 else "#dc3545"
-        balance_color = "#00D084" if year_ending >= 0 else "#dc3545"
-        
-        st.markdown(f"""
-        <div class="metric-container">
-            <h4 style="color: #00D084; margin: 0;">{year}</h4>
-            <p style="margin: 0.2rem 0; font-size: 0.9rem;">Inflows: ${year_inflows:,.0f}</p>
-            <p style="margin: 0.2rem 0; font-size: 0.9rem;">Outflows: $({abs(year_outflows):,.0f})</p>
-            <p style="margin: 0.2rem 0; font-weight: bold; color: {year_color};">Net: ${year_net:,.0f}</p>
-            <p style="margin: 0.2rem 0; font-weight: bold; color: {balance_color};">EOY Balance: ${year_ending:,.0f}</p>
-        </div>
-        """, unsafe_allow_html=True)
+# BAR GRAPH SECTION
+st.markdown("") # Small spacing
 
-# Auto-update notification
-st.info("💡 Expense data automatically flows to SG&A section of Income Statement when you save! Revenue can be synced with Income Statement.")
+# Chart type selection dropdown
+chart_type_col1, chart_type_col2 = st.columns([0.75, 3.25])
+with chart_type_col1:
+    # Get current index based on session state
+    chart_options = ["Total Inflows", "Total Outflows", "Net Cash Flow"]
+    current_type = st.session_state.get("chart_type", "inflows")
+    
+    if current_type == "inflows":
+        current_index = 0
+    elif current_type == "outflows":
+        current_index = 1
+    else:  # net
+        current_index = 2
+    
+    selected_chart = st.selectbox(
+        "Select chart type:",
+        options=chart_options,
+        index=current_index,
+        key="chart_type_select"
+    )
+    
+    # Update session state based on selection
+    if selected_chart == "Total Inflows":
+        st.session_state.chart_type = "inflows"
+    elif selected_chart == "Total Outflows":
+        st.session_state.chart_type = "outflows"
+    else:  # Net Cash Flow
+        st.session_state.chart_type = "net"
+
+# Get current chart type (default to inflows)
+chart_type = st.session_state.get("chart_type", "inflows")
+
+# Prepare chart data based on selected year
+if metrics_period == "All Years":
+    # For All Years, show yearly totals
+    chart_data = {}
+    years_dict = group_months_by_year(months)
+    
+    for year in sorted(years_dict.keys()):
+        year_months = years_dict[year]
+        if chart_type == "inflows":
+            chart_data[str(year)] = sum(total_inflows.get(month, 0) for month in year_months)
+        elif chart_type == "outflows":
+            chart_data[str(year)] = abs(sum(total_outflows.get(month, 0) for month in year_months))
+        else:  # net
+            chart_data[str(year)] = sum(adjusted_monthly_cash_flow.get(month, 0) for month in year_months)
+    
+    # Create DataFrame for chart
+    chart_df = pd.DataFrame({
+        'Period': list(chart_data.keys()),
+        'Value': list(chart_data.values())
+    })
+    chart_title = f"{chart_type.title().replace('_', ' ')} by Year"
+    
+else:
+    # For specific year, show monthly data
+    year_months = [month for month in months if metrics_period in month]
+    chart_data = {}
+    
+    # Create month labels (Jan, Feb, etc.)
+    month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    
+    for month_name in month_names:
+        # Find matching month in our data
+        matching_month = None
+        for month in year_months:
+            if month.startswith(month_name):
+                matching_month = month
+                break
+        
+        if matching_month:
+            if chart_type == "inflows":
+                chart_data[month_name] = total_inflows.get(matching_month, 0)
+            elif chart_type == "outflows":
+                chart_data[month_name] = abs(total_outflows.get(matching_month, 0))
+            else:  # net
+                chart_data[month_name] = adjusted_monthly_cash_flow.get(matching_month, 0)
+        else:
+            chart_data[month_name] = 0
+    
+    # Create DataFrame for chart
+    chart_df = pd.DataFrame({
+        'Period': list(chart_data.keys()),
+        'Value': list(chart_data.values())
+    })
+    chart_title = f"{chart_type.title().replace('_', ' ')} - {metrics_period}"
+
+# Display the chart
+if not chart_df.empty:
+    # Create Plotly figure for cleaner appearance
+    fig = go.Figure()
+    
+    # Set color based on chart type
+    if chart_type == "inflows":
+        color = '#00D084'  # Green for inflows
+    elif chart_type == "outflows":
+        color = '#dc3545'  # Red for outflows  
+    else:  # net
+        # Use conditional coloring for net cash flow
+        colors = ['#00D084' if val >= 0 else '#dc3545' for val in chart_df['Value']]
+        color = colors
+    
+    # Add bar trace
+    fig.add_trace(go.Bar(
+        x=chart_df['Period'],
+        y=chart_df['Value'],
+        marker_color=color,
+        opacity=0.7,
+        hovertemplate='<b>%{x}</b><br>$%{y:,.0f}<extra></extra>',
+        showlegend=False
+    ))
+    
+    # Update layout with clean styling
+    fig.update_layout(
+        title=dict(
+            text=chart_title,
+            font=dict(size=18, color='#262730')
+        ),
+        xaxis=dict(
+            title='',
+            showgrid=False,
+            tickangle=-45 if metrics_period != "All Years" else 0
+        ),
+        yaxis=dict(
+            title='Amount ($)',
+            showgrid=True,
+            gridcolor='rgba(128,128,128,0.2)',
+            tickformat='$,.0f'
+        ),
+        hovermode='x unified',
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font=dict(family="Arial, sans-serif", size=12),
+        height=350,
+        margin=dict(l=50, r=50, t=80, b=50)
+    )
+    
+    # Display the chart
+    st.plotly_chart(fig, use_container_width=True)
 
 st.markdown("---")
 
@@ -1910,7 +2059,7 @@ for year in range(current_year, current_year + 3):
         if month_str in months:  # Only include months that exist in our data
             load_effective_options.append(month_str)
 
-data_col1, data_col2, data_col3, data_col4 = st.columns([1, 1, 1, 2])
+data_col1, data_col2, data_col3, data_col4, data_col5, data_col6 = st.columns([1, 1, 1, 1, 0.75, 1.25])
 
 with data_col1:
     if st.button("💾 Save Data", type="primary", use_container_width=True):
@@ -1936,7 +2085,124 @@ with data_col2:
         st.rerun()
 
 with data_col3:
-    if st.button("🔄 Sync Payroll from Headcount", type="secondary", use_container_width=True):
+    # Create Excel export data
+    try:
+        import tempfile
+        import os
+        from datetime import datetime
+        
+        # Generate timestamp and filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"SHAED_Liquidity_Model_{timestamp}.xlsx"
+        
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+            temp_path = tmp_file.name
+        
+        # Create Excel writer
+        with pd.ExcelWriter(temp_path, engine='openpyxl') as writer:
+            # Export Cash Receipts Data
+            liquidity_data = st.session_state.model_data.get("liquidity_data", {})
+            
+            if "revenue" in liquidity_data:
+                revenue_df = pd.DataFrame({'Revenue': liquidity_data['revenue']})
+                revenue_df.index.name = 'Month'
+                revenue_df.to_excel(writer, sheet_name='Revenue')
+            
+            if "other_cash_receipts" in liquidity_data:
+                other_receipts_df = pd.DataFrame({'Other Cash Receipts': liquidity_data['other_cash_receipts']})
+                other_receipts_df.index.name = 'Month'
+                other_receipts_df.to_excel(writer, sheet_name='Other Cash Receipts')
+            
+            if "investment" in liquidity_data:
+                investment_df = pd.DataFrame({'Investment': liquidity_data['investment']})
+                investment_df.index.name = 'Month'
+                investment_df.to_excel(writer, sheet_name='Investment')
+            
+            # Export Expense Categories
+            if "expenses" in liquidity_data and liquidity_data["expenses"]:
+                expenses_df = pd.DataFrame(liquidity_data["expenses"]).T
+                expenses_df.index.name = 'Month'
+                expenses_df.to_excel(writer, sheet_name='Expenses')
+            
+            # Export Cash Flow Summary
+            cash_flow_summary = []
+            for month in months:
+                # Cash inflows
+                revenue = liquidity_data.get("revenue", {}).get(month, 0)
+                other_receipts = liquidity_data.get("other_cash_receipts", {}).get(month, 0)
+                investment = liquidity_data.get("investment", {}).get(month, 0)
+                total_inflows = revenue + other_receipts + investment
+                
+                # Cash outflows
+                total_outflows = 0
+                expense_categories = liquidity_data.get("category_order", [])
+                for category in expense_categories:
+                    total_outflows += liquidity_data.get("expenses", {}).get(category, {}).get(month, 0)
+                
+                # Net cash flow
+                net_cash_flow = total_inflows - total_outflows
+                
+                # Calculate cumulative cash balance
+                starting_balance = liquidity_data.get("starting_balance", 0)
+                cumulative_balance = starting_balance
+                
+                # Sum up all previous months
+                for prev_month in months:
+                    if prev_month == month:
+                        break
+                    prev_revenue = liquidity_data.get("revenue", {}).get(prev_month, 0)
+                    prev_other = liquidity_data.get("other_cash_receipts", {}).get(prev_month, 0)
+                    prev_investment = liquidity_data.get("investment", {}).get(prev_month, 0)
+                    prev_expenses = sum(liquidity_data.get("expenses", {}).get(cat, {}).get(prev_month, 0) for cat in expense_categories)
+                    cumulative_balance += prev_revenue + prev_other + prev_investment - prev_expenses
+                
+                # Add current month
+                cumulative_balance += net_cash_flow
+                
+                cash_flow_summary.append({
+                    'Month': month,
+                    'Revenue': revenue,
+                    'Other Cash Receipts': other_receipts,
+                    'Investment': investment,
+                    'Total Cash Inflows': total_inflows,
+                    'Total Cash Outflows': total_outflows,
+                    'Net Cash Flow': net_cash_flow,
+                    'Cumulative Cash Balance': cumulative_balance
+                })
+            
+            if cash_flow_summary:
+                cash_flow_df = pd.DataFrame(cash_flow_summary)
+                cash_flow_df.to_excel(writer, sheet_name='Cash Flow Summary', index=False)
+        
+        # Read the file data for download
+        with open(temp_path, 'rb') as f:
+            excel_data = f.read()
+        
+        # Clean up temp file
+        os.unlink(temp_path)
+        
+        # Direct download button that triggers immediately
+        st.download_button(
+            label="📊 Export Excel",
+            data=excel_data,
+            file_name=filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            use_container_width=True
+        )
+        
+    except ImportError:
+        # Fallback button if openpyxl not available
+        if st.button("📊 Export Excel", type="primary", use_container_width=True):
+            st.error("❌ Excel export requires openpyxl. Please install: pip install openpyxl")
+    except Exception as e:
+        # Fallback button if there's an error
+        if st.button("📊 Export Excel", type="primary", use_container_width=True):
+            st.error(f"❌ Error creating Excel file: {str(e)}")
+
+with data_col4:
+    if st.button("🔄 Sync Headcount", type="secondary", use_container_width=True):
         load_effective_month = st.session_state.get("load_effective_month", "All Data (Replace Everything)")
         effective_month_for_sync = None if load_effective_month == "All Data (Replace Everything)" else load_effective_month
         update_liquidity_with_payroll(effective_month_for_sync)
@@ -1948,7 +2214,7 @@ with data_col3:
         
         st.rerun()
 
-with data_col4:
+with data_col5:
     # Calculate default index for current month
     current_month_str = datetime.now().strftime('%b %Y')
     try:
@@ -1969,9 +2235,9 @@ with data_col4:
     st.session_state.load_effective_month = load_effective_month
 
 # Footer
-st.markdown("---")
 st.markdown("""
-<div style="text-align: center; color: #666; padding: 1rem;">
-    <strong>SHAED Financial Model - Liquidity Forecast</strong> | Powering the future of mobility
+<div style="text-align: center; color: #666; padding: 2rem; margin-top: 3rem; border-top: 1px solid #e0e0e0;">
+    <strong>SHAED Finance Dashboard - Liquidity</strong> | Powering the future of mobility<br>
+    <small>© 2025 SHAED - All rights reserved</small>
 </div>
 """, unsafe_allow_html=True)
