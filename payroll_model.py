@@ -554,13 +554,19 @@ def calculate_monthly_payroll():
 
 # Calculate monthly contractor expenses
 def calculate_monthly_contractor_costs():
-    """Calculate monthly contractor costs"""
+    """Calculate monthly contractor costs by department"""
     
     total_contractor_costs = {month: 0 for month in months}
+    contractor_costs_by_dept = {
+        "Product Development": {month: 0 for month in months},
+        "Sales and Marketing": {month: 0 for month in months}, 
+        "Opex": {month: 0 for month in months}
+    }
     
     for contractor_data in st.session_state.model_data["payroll_data"]["contractors"].values():
         resources = contractor_data.get("resources", 0)
         hourly_rate = contractor_data.get("hourly_rate", 0)
+        department = contractor_data.get("department", "Product Development")
         
         # Calculate monthly cost: resources * hourly rate * 40 hours * 4 weeks
         monthly_cost = resources * hourly_rate * 40 * 4
@@ -569,8 +575,9 @@ def calculate_monthly_contractor_costs():
         for month in months:
             if is_contractor_active_for_month(contractor_data, month):
                 total_contractor_costs[month] += monthly_cost
+                contractor_costs_by_dept[department][month] += monthly_cost
     
-    return total_contractor_costs
+    return total_contractor_costs, contractor_costs_by_dept
 
 # Initialize payroll configuration
 def initialize_payroll_config():
@@ -602,7 +609,7 @@ def calculate_total_personnel_costs():
     """Calculate total personnel costs including payroll, taxes/benefits, bonuses, and contractors"""
     
     payroll_by_dept, total_payroll = calculate_monthly_payroll()
-    contractor_costs = calculate_monthly_contractor_costs()
+    contractor_costs, contractor_costs_by_dept = calculate_monthly_contractor_costs()
     
     # Get configuration
     config = st.session_state.model_data["payroll_data"]["payroll_config"]
@@ -632,13 +639,13 @@ def calculate_total_personnel_costs():
         payroll_taxes[month] = monthly_taxes
         total_payroll_cost[month] = base_payroll + monthly_bonus + monthly_taxes
     
-    return total_payroll, payroll_taxes, bonuses, contractor_costs, total_payroll_cost
+    return total_payroll, payroll_taxes, bonuses, contractor_costs, total_payroll_cost, contractor_costs_by_dept
 
 # Update liquidity model with separate payroll and contractor costs
 def update_liquidity_payroll(effective_month=None):
     """Update liquidity model with calculated payroll and contractor costs from effective month forward"""
     
-    base_payroll, payroll_taxes, bonuses, contractor_costs, total_payroll_cost = calculate_total_personnel_costs()
+    base_payroll, payroll_taxes, bonuses, contractor_costs, total_payroll_cost, contractor_costs_by_dept = calculate_total_personnel_costs()
     
     # Initialize liquidity data if needed
     if "liquidity_data" not in st.session_state.model_data:
@@ -1036,6 +1043,7 @@ def create_contractor_table():
         table_data.append({
             "Vendor": contractor_data.get("vendor", ""),
             "Role": contractor_data.get("role", ""),
+            "Department": contractor_data.get("department", "Product Development"),
             "# of Resources": resources,
             "Hourly Rate": hourly_rate,
             "Start Date": start_date_obj,
@@ -1051,6 +1059,7 @@ def create_contractor_table():
         df = pd.DataFrame({
             "Vendor": [""],
             "Role": [""],
+            "Department": ["Product Development"],
             "# of Resources": [0],
             "Hourly Rate": [0],
             "Start Date": [date(2025, 1, 1)],
@@ -1062,6 +1071,11 @@ def create_contractor_table():
     column_config = {
         "Vendor": st.column_config.TextColumn("Vendor", width="medium"),
         "Role": st.column_config.TextColumn("Role", width="medium"),
+        "Department": st.column_config.SelectboxColumn(
+            "Department",
+            options=["Product Development", "Sales and Marketing", "Opex"],
+            width="medium"
+        ),
         "# of Resources": st.column_config.NumberColumn(
             "# of Resources",
             help="Number of contractor resources",
@@ -1152,9 +1166,13 @@ def create_contractor_table():
             else:
                 end_date_str = end_date_value.strftime("%Y-%m-%d")  # Convert date to string
             
+        # Get department
+        department = str(row["Department"]) if not pd.isna(row["Department"]) else "Product Development"
+        
         contractor_data = {
             "vendor": vendor,
             "role": role,
+            "department": department,
             "resources": resources,
             "hourly_rate": hourly_rate,
             "start_date": start_date_str,
@@ -1307,10 +1325,7 @@ for emp_data in st.session_state.model_data["payroll_data"]["employees"].values(
         
         total_monthly_rate += monthly_cost
 
-# Display employee subtotals
-st.markdown(f"**Total Active Employees: {active_employees}**")
-st.markdown(f"**Total Monthly Rate: ${total_monthly_rate:,.2f}**")
-st.markdown(f"**Total Annual Cost: ${total_monthly_rate * 12:,.2f}**")
+# Employee totals removed - data will be used in key metrics section
 
 st.markdown("Employee Bonuses:")
 create_bonus_table()
@@ -1344,7 +1359,7 @@ st.markdown("---")
 # CONTRACTOR MANAGEMENT
 st.markdown('<div class="section-header">🏢 Contractor Management</div>', unsafe_allow_html=True)
 
-st.info("💡 Add contractor expenses by specifying vendor, role, number of resources, hourly rate, and engagement dates. Monthly rate is calculated as: Resources × Hourly Rate × 40 hours × 4 weeks.")
+
 
 
 
@@ -1362,10 +1377,7 @@ contractor_total = sum(
     for contractor_data in st.session_state.model_data["payroll_data"]["contractors"].values()
 )
 
-# Display subtotals
-st.markdown(f"**Total Resources: {total_resources:.1f}**")
-st.markdown(f"**Total Monthly Rate: ${contractor_total:,.2f}**")
-st.markdown(f"**Total Annual Cost: ${contractor_total * 12:,.2f}**")
+# Contractor totals removed - data will be used in key metrics section
 
 st.markdown("---")
 
@@ -1441,6 +1453,95 @@ def create_custom_payroll_table(categories, payroll_data, show_monthly=True):
     
     st.markdown(html_content, unsafe_allow_html=True)
 
+# Helper function to create custom payroll table with special total row formatting
+def create_custom_payroll_table_with_totals(categories, payroll_data, show_monthly=True):
+    """Create custom payroll table with special formatting for Total rows"""
+    years_dict = group_months_by_year(months)
+    
+    if show_monthly:
+        data_columns = []
+        for year in sorted(years_dict.keys()):
+            data_columns.extend(years_dict[year])
+            data_columns.append(f"{year} Total")
+    else:
+        data_columns = [f"{year} Total" for year in sorted(years_dict.keys())]
+    
+    # Build HTML table
+    html_content = '<div class="fixed-table-container">'
+    
+    # Fixed category column
+    html_content += '<div class="fixed-category-column">'
+    html_content += '<div class="category-header">Category</div>'
+    for category in categories:
+        # Apply special styling to Total rows
+        if category.startswith("Total"):
+            html_content += f'<div class="category-total">{category}</div>'
+        else:
+            html_content += f'<div class="category-cell">{category}</div>'
+    html_content += '</div>'
+    
+    # Scrollable data area
+    html_content += '<div class="scrollable-data">'
+    html_content += '<table class="data-table"><colgroup>'
+    
+    # Define column groups for consistent width
+    for col in data_columns:
+        if "Total" in col:
+            html_content += '<col style="width: 100px;">'
+        else:
+            html_content += '<col style="width: 80px;">'
+    
+    html_content += '</colgroup>'
+    
+    # Header row
+    html_content += '<thead><tr style="height: 43px !important;">'
+    for col in data_columns:
+        css_class = "data-header year-total" if "Total" in col else "data-header"
+        html_content += f'<th class="{css_class}" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important; text-align: center !important;">{col}</th>'
+    html_content += '</tr></thead>'
+    
+    # Data rows
+    html_content += '<tbody>'
+    for category in categories:
+        # Apply total-row class to Total rows
+        row_class = "total-row" if category.startswith("Total") else ""
+        html_content += f'<tr class="{row_class}" style="height: 43px !important;">'
+        
+        # Handle empty space row
+        if category.strip() == "":
+            if show_monthly:
+                for year in sorted(years_dict.keys()):
+                    for month in years_dict[year]:
+                        html_content += f'<td class="data-cell" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"></td>'
+                    html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"></td>'
+            else:
+                for year in sorted(years_dict.keys()):
+                    html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"></td>'
+        else:
+            if show_monthly:
+                for year in sorted(years_dict.keys()):
+                    yearly_total = 0
+                    for month in years_dict[year]:
+                        value = payroll_data.get(category, {}).get(month, 0)
+                        html_content += f'<td class="data-cell" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;">{format_number(value)}</td>'
+                        yearly_total += value
+                    html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{format_number(yearly_total)}</strong></td>'
+            else:
+                for year in sorted(years_dict.keys()):
+                    yearly_total = sum(
+                        payroll_data.get(category, {}).get(month, 0)
+                        for month in years_dict[year]
+                    )
+                    html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{format_number(yearly_total)}</strong></td>'
+        
+        html_content += '</tr>'
+    
+    html_content += '</tbody></table>'
+    html_content += '</div>'
+    html_content += '</div>'
+    
+    st.markdown(html_content, unsafe_allow_html=True)
+
 # Helper function to create custom payroll total row
 def create_custom_payroll_total_row(total_dict, row_label, show_monthly=True):
     """Create a total row with fixed category column"""
@@ -1506,58 +1607,64 @@ def create_custom_payroll_total_row(total_dict, row_label, show_monthly=True):
     st.markdown(html_content, unsafe_allow_html=True)
 
 # PAYROLL TABLES
-st.markdown('<div class="section-header">📊 Payroll Breakdown Tables</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header">📊 Headcount Totals</div>', unsafe_allow_html=True)
 
 # Calculate payroll costs for tables
-base_payroll, payroll_taxes, bonuses, contractor_costs, total_payroll_cost = calculate_total_personnel_costs()
+base_payroll, payroll_taxes, bonuses, contractor_costs, total_payroll_cost, contractor_costs_by_dept = calculate_total_personnel_costs()
 payroll_by_dept, _ = calculate_monthly_payroll()  # Still needed for department breakdown
 
 show_monthly = view_mode == "Monthly + Yearly"
-
-# Payroll breakdown by department using custom table format
-dept_categories = ["Product Development", "Sales and Marketing", "Opex"]
-create_custom_payroll_table(dept_categories, payroll_by_dept, show_monthly)
 
 # Calculate total payroll cost (base + taxes + bonuses)
 total_payroll_cost = {}
 for month in months:
     total_payroll_cost[month] = base_payroll[month] + payroll_taxes[month] + bonuses[month]
 
-# Payroll cost breakdown (tables without titles)
-create_custom_payroll_total_row(base_payroll, "Total Base Payroll", show_monthly)
-
-create_custom_payroll_total_row(bonuses, "Total Employee Bonuses", show_monthly)
-
-create_custom_payroll_total_row(payroll_taxes, "Total Payroll Taxes & Benefits", show_monthly)
-
-create_custom_payroll_total_row(total_payroll_cost, "Total Payroll Cost", show_monthly)
-
-st.markdown("---")
-
-# Contractor costs
-create_custom_payroll_total_row(contractor_costs, "Total Contractor Costs", show_monthly)
+# Combined payroll and contractor cost breakdown with space row
+empty_row = {month: 0 for month in months}  # Empty row for spacing
+combined_cost_data = {
+    "Base Payroll": base_payroll,
+    "Employee Bonuses": bonuses,
+    "Payroll Taxes & Benefits": payroll_taxes,
+    "Total Payroll Cost": total_payroll_cost,
+    " ": empty_row,  # Space row
+    "Total Contractor Costs": contractor_costs
+}
+create_custom_payroll_table_with_totals(["Base Payroll", "Employee Bonuses", "Payroll Taxes & Benefits", "Total Payroll Cost", " ", "Total Contractor Costs"], combined_cost_data, show_monthly)
 
 st.markdown("---")
 
-# PERSONNEL COST SUMMARY
-st.markdown('<div class="section-header">💰 Personnel Cost Summary</div>', unsafe_allow_html=True)
+# KEY METRICS
+st.markdown('<div class="section-header">📈 Key Metrics</div>', unsafe_allow_html=True)
 
-# Year filter for employee status summary
-filter_col1, filter_col2 = st.columns([1, 3])
+# Time period and metrics selection
+metric_col1, metric_col2, metric_col3 = st.columns([0.75, 0.75, 2.5])
 
-with filter_col1:
-    selected_year = st.selectbox(
-        "Filter by Year:",
-        options=["Current", "2025", "2026", "2027", "2028", "2029", "2030"],
-        index=0,
-        help="Select year to view employee status and costs for that specific year"
+with metric_col1:
+    # Add dropdown for time period selection
+    summary_options = ["Current", "2025", "2026", "2027", "2028", "2029", "2030", "All Years"]
+    try:
+        current_year = str(datetime.now().year)
+        default_index = summary_options.index(current_year) if current_year in summary_options else 0
+    except ValueError:
+        default_index = 0
+    
+    selected_period = st.selectbox(
+        "Select time period:",
+        options=summary_options,
+        index=default_index,
+        key="headcount_period_select"
     )
 
-with filter_col2:
-    if selected_year == "Current":
-        st.info("📅 Showing current employee status based on today's date")
-    else:
-        st.info(f"📅 Showing employee status for {selected_year} (Dec 31, {selected_year})")
+with metric_col2:
+    # Add dropdown for metrics selection
+    metrics_options = ["Headcount Overview", "Department Breakdown"]
+    selected_metrics = st.selectbox(
+        "Select Key Metrics:",
+        options=metrics_options,
+        index=0,
+        key="headcount_metrics_select"
+    )
 
 # Helper function to get employee status for a specific year
 def get_employee_status_for_year(emp_data, year):
@@ -1588,13 +1695,13 @@ def get_employee_status_for_year(emp_data, year):
         # Fall back to active field if dates are invalid
         return "🟢 Current" if emp_data.get("active", True) else "🔴 Inactive"
 
-# Summary metrics - using year-based logic
+# Calculate headcount metrics based on selected period
 current_employees = 0
 future_employees = 0
 terminated_employees = 0
 
 for emp_data in st.session_state.model_data["payroll_data"]["employees"].values():
-    status = get_employee_status_for_year(emp_data, selected_year)
+    status = get_employee_status_for_year(emp_data, selected_period)
     if "Current" in status:
         current_employees += 1
     elif "Future" in status:
@@ -1604,9 +1711,26 @@ for emp_data in st.session_state.model_data["payroll_data"]["employees"].values(
 
 total_employees = current_employees + future_employees + terminated_employees
 
-# Calculate totals based on selected year
-if selected_year == "Current":
+# Calculate contractor metrics
+total_contractors = len(st.session_state.model_data["payroll_data"]["contractors"])
+active_contractors = 0
+for contractor_data in st.session_state.model_data["payroll_data"]["contractors"].values():
+    # Simplified active check - could be enhanced with date logic
+    if contractor_data.get("resources", 0) > 0 and contractor_data.get("hourly_rate", 0) > 0:
+        active_contractors += 1
+
+# Calculate financial totals based on selected period
+if selected_period == "Current":
     # Show 6-year totals for current view
+    total_base_payroll = sum(base_payroll.values())
+    total_payroll_taxes = sum(payroll_taxes.values())
+    total_bonuses = sum(bonuses.values())
+    total_contractor_costs = sum(contractor_costs.values())
+    total_payroll_cost_sum = sum(total_payroll_cost.values())
+    period_label = "6-Year Total"
+    divisor = 6
+elif selected_period == "All Years":
+    # Show 6-year totals
     total_base_payroll = sum(base_payroll.values())
     total_payroll_taxes = sum(payroll_taxes.values())
     total_bonuses = sum(bonuses.values())
@@ -1616,181 +1740,380 @@ if selected_year == "Current":
     divisor = 6
 else:
     # Show specific year totals
-    year_months = [f"{month} {selected_year}" for month in ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]]
+    year_months = [f"{month} {selected_period}" for month in ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]]
     total_base_payroll = sum(base_payroll.get(month, 0) for month in year_months)
     total_payroll_taxes = sum(payroll_taxes.get(month, 0) for month in year_months)
     total_bonuses = sum(bonuses.get(month, 0) for month in year_months)
     total_contractor_costs = sum(contractor_costs.get(month, 0) for month in year_months)
     total_payroll_cost_sum = sum(total_payroll_cost.get(month, 0) for month in year_months)
-    period_label = f"{selected_year} Total"
+    period_label = f"{selected_period} Total"
     divisor = 1
 
-# Display employee status summary
-st.markdown("**Employee Status Summary:**")
-status_col1, status_col2, status_col3, status_col4 = st.columns(4)
+# Conditional KPI display based on selected metrics
+if selected_metrics == "Headcount Overview":
+    # Headcount Overview KPIs
+    headcount_col1, headcount_col2, headcount_col3, headcount_col4, headcount_col5 = st.columns(5)
 
-with status_col1:
-    st.markdown(f"""
-    <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">🟢 Current Employees</h4>
-        <h2 style="margin: 0.5rem 0 0 0;">{current_employees}</h2>
-    </div>
-    """, unsafe_allow_html=True)
+    with headcount_col1:
+        st.markdown(f"""
+        <div class="metric-container">
+            <h4 style="color: #00D084; margin: 0;">🟢 Current Employees</h4>
+            <h2 style="margin: 0.5rem 0 0 0;">{current_employees}</h2>
+        </div>
+        """, unsafe_allow_html=True)
 
-with status_col2:
-    st.markdown(f"""
-    <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">🔵 Future Hires</h4>
-        <h2 style="margin: 0.5rem 0 0 0;">{future_employees}</h2>
-    </div>
-    """, unsafe_allow_html=True)
+    with headcount_col2:
+        st.markdown(f"""
+        <div class="metric-container">
+            <h4 style="color: #00D084; margin: 0;">🔵 Future Hires</h4>
+            <h2 style="margin: 0.5rem 0 0 0;">{future_employees}</h2>
+        </div>
+        """, unsafe_allow_html=True)
 
-with status_col3:
-    st.markdown(f"""
-    <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">🔴 Terminated</h4>
-        <h2 style="margin: 0.5rem 0 0 0;">{terminated_employees}</h2>
-    </div>
-    """, unsafe_allow_html=True)
+    with headcount_col3:
+        st.markdown(f"""
+        <div class="metric-container">
+            <h4 style="color: #00D084; margin: 0;">🔴 Terminated</h4>
+            <h2 style="margin: 0.5rem 0 0 0;">{terminated_employees}</h2>
+        </div>
+        """, unsafe_allow_html=True)
 
-with status_col4:
-    st.markdown(f"""
-    <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">📊 Total in System</h4>
-        <h2 style="margin: 0.5rem 0 0 0;">{total_employees}</h2>
-    </div>
-    """, unsafe_allow_html=True)
+    with headcount_col4:
+        st.markdown(f"""
+        <div class="metric-container">
+            <h4 style="color: #00D084; margin: 0;">🏢 Active Contractors</h4>
+            <h2 style="margin: 0.5rem 0 0 0;">{active_contractors}</h2>
+        </div>
+        """, unsafe_allow_html=True)
 
-# Financial summary
-st.markdown(f"**Financial Summary ({period_label}):**")
-col1, col2, col3, col4, col5 = st.columns(5)
+    with headcount_col5:
+        st.markdown(f"""
+        <div class="metric-container">
+            <h4 style="color: #00D084; margin: 0;">📊 Total Headcount</h4>
+            <h2 style="margin: 0.5rem 0 0 0;">{current_employees + active_contractors}</h2>
+        </div>
+        """, unsafe_allow_html=True)
 
-with col1:
-    st.markdown(f"""
-    <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">Base Payroll (Annual)</h4>
-        <h2 style="margin: 0.5rem 0 0 0;">${total_base_payroll / divisor:,.0f}</h2>
-    </div>
-    """, unsafe_allow_html=True)
+elif selected_metrics == "Department Breakdown":
+    # Department Breakdown KPIs
+    dept_col1, dept_col2, dept_col3, dept_col4 = st.columns(4)
 
-with col2:
-    st.markdown(f"""
-    <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">Taxes & Benefits (Annual)</h4>
-        <h2 style="margin: 0.5rem 0 0 0;">${total_payroll_taxes / divisor:,.0f}</h2>
-    </div>
-    """, unsafe_allow_html=True)
+    dept_totals = {}
+    for dept in ["Product Development", "Sales and Marketing", "Opex"]:
+        if selected_period in ["Current", "All Years"]:
+            dept_total = sum(payroll_by_dept[dept].values()) / divisor
+            # Add contractor costs to each department
+            dept_contractor_total = sum(contractor_costs_by_dept[dept].values()) / divisor
+            dept_total += dept_contractor_total
+            dept_totals[dept] = dept_total
+        else:
+            year_months = [f"{month} {selected_period}" for month in ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]]
+            dept_total = sum(payroll_by_dept[dept].get(month, 0) for month in year_months)
+            # Add contractor costs for specific year
+            dept_contractor_total = sum(contractor_costs_by_dept[dept].get(month, 0) for month in year_months)
+            dept_total += dept_contractor_total
+            dept_totals[dept] = dept_total
 
-with col3:
-    st.markdown(f"""
-    <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">Bonuses (Annual)</h4>
-        <h2 style="margin: 0.5rem 0 0 0;">${total_bonuses / divisor:,.0f}</h2>
-    </div>
-    """, unsafe_allow_html=True)
+    with dept_col1:
+        st.markdown(f"""
+        <div class="metric-container">
+            <h4 style="color: #00D084; margin: 0;">🔧 Product Development</h4>
+            <h2 style="margin: 0.5rem 0 0 0;">${dept_totals["Product Development"]:,.0f}</h2>
+            <p style="margin: 0.2rem 0 0 0; font-size: 0.8rem; color: #666;">Annual Payroll + Contractors</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-with col4:
-    st.markdown(f"""
-    <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">Contractors (Annual)</h4>
-        <h2 style="margin: 0.5rem 0 0 0;">${total_contractor_costs / divisor:,.0f}</h2>
-    </div>
-    """, unsafe_allow_html=True)
+    with dept_col2:
+        st.markdown(f"""
+        <div class="metric-container">
+            <h4 style="color: #00D084; margin: 0;">📈 Sales and Marketing</h4>
+            <h2 style="margin: 0.5rem 0 0 0;">${dept_totals["Sales and Marketing"]:,.0f}</h2>
+            <p style="margin: 0.2rem 0 0 0; font-size: 0.8rem; color: #666;">Annual Payroll + Contractors</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-with col5:
-    # Calculate monthly payroll for the selected year/period
-    if selected_year == "Current":
-        sample_month = "Jan 2025"
-        label = "Current Monthly Payroll"
-    else:
-        sample_month = f"Jan {selected_year}"
-        label = f"{selected_year} Monthly Payroll"
-    
-    monthly_payroll = 0
-    for emp_data in st.session_state.model_data["payroll_data"]["employees"].values():
-        if is_employee_active_for_month(emp_data, sample_month):
-            pay_type = emp_data.get("pay_type", "Salary")
-            if pay_type == "Salary":
-                annual_salary = emp_data.get("annual_salary", 0)
-                pay_periods = st.session_state.model_data["payroll_data"]["pay_periods"].get(sample_month, 2)
-                monthly_payroll += (annual_salary / 26) * pay_periods
-            else:
-                hourly_rate = emp_data.get("hourly_rate", 0)
-                weekly_hours = emp_data.get("weekly_hours", 40.0)
-                monthly_hours = weekly_hours * 4.33  # Average weeks per month
-                monthly_payroll += hourly_rate * monthly_hours
-    
-    st.markdown(f"""
-    <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">{label}</h4>
-        <h2 style="margin: 0.5rem 0 0 0;">${monthly_payroll:,.0f}</h2>
-    </div>
-    """, unsafe_allow_html=True)
+    with dept_col3:
+        st.markdown(f"""
+        <div class="metric-container">
+            <h4 style="color: #00D084; margin: 0;">⚙️ Operations</h4>
+            <h2 style="margin: 0.5rem 0 0 0;">${dept_totals["Opex"]:,.0f}</h2>
+            <p style="margin: 0.2rem 0 0 0; font-size: 0.8rem; color: #666;">Annual Payroll + Contractors</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-# Total Personnel Costs (Payroll + Contractor)
-st.markdown(f"**Total Personnel Costs ({period_label}):**")
+    with dept_col4:
+        # Calculate total personnel cost across all departments
+        total_dept_cost = sum(dept_totals.values())
+        st.markdown(f"""
+        <div class="metric-container">
+            <h4 style="color: #00D084; margin: 0;">📊 Total Personnel Cost</h4>
+            <h2 style="margin: 0.5rem 0 0 0;">${total_dept_cost:,.0f}</h2>
+            <p style="margin: 0.2rem 0 0 0; font-size: 0.8rem; color: #666;">All Departments</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+# Calculate total personnel costs for chart usage
 total_personnel_costs_sum = total_payroll_cost_sum + total_contractor_costs
-annual_total = total_personnel_costs_sum / divisor
 
-if selected_year == "Current":
-    avg_monthly_total = total_personnel_costs_sum / len(months)
+# Chart section
+st.markdown("") # Small spacing
+st.markdown("---") # Line separator
+
+# Chart type selection dropdown
+chart_type_col1, chart_type_col2 = st.columns([0.75, 3.25])
+with chart_type_col1:
+    chart_options = ["Total Personnel Cost", "Payroll Cost", "Contractor Cost", "Headcount", "Department Breakdown", "Personnel Cost %"]
+    selected_chart = st.selectbox(
+        "Select chart type:",
+        options=chart_options,
+        index=0,
+        key="headcount_chart_type_select"
+    )
+
+# Prepare chart data based on selected period and chart type
+if selected_period == "All Years":
+    # For All Years, show yearly totals
+    chart_data = {}
+    years_dict = group_months_by_year(months)
+    
+    for year in sorted(years_dict.keys()):
+        year_months = years_dict[year]
+        if selected_chart == "Total Personnel Cost":
+            payroll_total = sum(total_payroll_cost.get(month, 0) for month in year_months)
+            contractor_total = sum(contractor_costs.get(month, 0) for month in year_months)
+            chart_data[str(year)] = payroll_total + contractor_total
+        elif selected_chart == "Payroll Cost":
+            chart_data[str(year)] = sum(total_payroll_cost.get(month, 0) for month in year_months)
+        elif selected_chart == "Contractor Cost":
+            chart_data[str(year)] = sum(contractor_costs.get(month, 0) for month in year_months)
+        elif selected_chart == "Headcount":
+            # For headcount, just show current count for each year (simplified)
+            chart_data[str(year)] = current_employees + active_contractors
+        elif selected_chart == "Department Breakdown":
+            # For department breakdown, we'll store data differently for stacking
+            if str(year) not in chart_data:
+                chart_data[str(year)] = {}
+            
+            # Calculate each department total (payroll + department-specific contractors)
+            for dept in ["Product Development", "Sales and Marketing", "Opex"]:
+                payroll_total = sum(payroll_by_dept[dept].get(month, 0) for month in year_months)
+                contractor_total = sum(contractor_costs_by_dept[dept].get(month, 0) for month in year_months)
+                # Use "Operations" as the key for display consistency with Opex
+                display_key = "Operations" if dept == "Opex" else dept
+                chart_data[str(year)][display_key] = payroll_total + contractor_total
+        elif selected_chart == "Personnel Cost %":
+            # For percentage breakdown, we'll store data differently for stacking
+            if str(year) not in chart_data:
+                chart_data[str(year)] = {}
+            
+            # Calculate department totals (payroll + department-specific contractors)
+            dept_totals_year = {}
+            total_personnel = 0
+            
+            for dept in ["Product Development", "Sales and Marketing", "Opex"]:
+                payroll_total = sum(payroll_by_dept[dept].get(month, 0) for month in year_months)
+                contractor_total = sum(contractor_costs_by_dept[dept].get(month, 0) for month in year_months)
+                dept_total = payroll_total + contractor_total
+                display_key = "Operations" if dept == "Opex" else dept
+                dept_totals_year[display_key] = dept_total
+                total_personnel += dept_total
+            
+            # Calculate percentages
+            if total_personnel > 0:
+                for display_key, dept_total in dept_totals_year.items():
+                    chart_data[str(year)][display_key] = (dept_total / total_personnel) * 100
+            else:
+                chart_data[str(year)]["Product Development"] = 0
+                chart_data[str(year)]["Sales and Marketing"] = 0
+                chart_data[str(year)]["Operations"] = 0
+    
+    chart_title = f"{selected_chart} by Year"
+    x_label = "Year"
+    
 else:
-    avg_monthly_total = total_personnel_costs_sum / 12
-
-st.markdown(f"""
-<div class="metric-container">
-    <h4 style="color: #00D084; margin: 0;">Total Personnel Costs (Annual)</h4>
-    <h2 style="margin: 0.5rem 0 0 0;">${annual_total:,.0f}</h2>
-    <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem;">Average Monthly: ${avg_monthly_total:,.0f}</p>
-    <p style="margin: 0.5rem 0 0 0; font-size: 0.8rem;">Payroll: ${total_payroll_cost_sum / divisor:,.0f} | Contractors: ${total_contractor_costs / divisor:,.0f}</p>
-</div>
-""", unsafe_allow_html=True)
-
-# Payroll by department summary
-st.markdown(f"**Payroll by Department ({period_label}):**")
-dept_col1, dept_col2, dept_col3 = st.columns(3)
-
-dept_totals = {}
-for dept in ["Product Development", "Sales and Marketing", "Opex"]:
-    if selected_year == "Current":
-        dept_totals[dept] = sum(payroll_by_dept[dept].values()) / 6
+    # For specific year or current, show monthly data
+    if selected_period == "Current":
+        # Show all months from 2025-2030
+        chart_months = months[:12]  # Show first year as sample
+        chart_title = f"{selected_chart} - 2025 Sample"
     else:
-        year_months = [f"{month} {selected_year}" for month in ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]]
-        dept_totals[dept] = sum(payroll_by_dept[dept].get(month, 0) for month in year_months)
+        # Show specific year
+        chart_months = [f"{month_name} {selected_period}" for month_name in 
+                       ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]]
+        chart_title = f"{selected_chart} - {selected_period}"
+    
+    chart_data = {}
+    month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    
+    for i, month_name in enumerate(month_names):
+        if i < len(chart_months):
+            month = chart_months[i]
+            if selected_chart == "Total Personnel Cost":
+                payroll_value = total_payroll_cost.get(month, 0)
+                contractor_value = contractor_costs.get(month, 0)
+                chart_data[month_name] = payroll_value + contractor_value
+            elif selected_chart == "Payroll Cost":
+                chart_data[month_name] = total_payroll_cost.get(month, 0)
+            elif selected_chart == "Contractor Cost":
+                chart_data[month_name] = contractor_costs.get(month, 0)
+            elif selected_chart == "Headcount":
+                # Simplified headcount for chart
+                chart_data[month_name] = current_employees + active_contractors
+            elif selected_chart == "Department Breakdown":
+                # For department breakdown, we'll store data differently for stacking
+                if month_name not in chart_data:
+                    chart_data[month_name] = {}
+                
+                # Calculate each department total (payroll + department-specific contractors)
+                for dept in ["Product Development", "Sales and Marketing", "Opex"]:
+                    payroll_value = payroll_by_dept[dept].get(month, 0)
+                    contractor_value = contractor_costs_by_dept[dept].get(month, 0)
+                    display_key = "Operations" if dept == "Opex" else dept
+                    chart_data[month_name][display_key] = payroll_value + contractor_value
+            elif selected_chart == "Personnel Cost %":
+                # For percentage breakdown, we'll store data differently for stacking
+                if month_name not in chart_data:
+                    chart_data[month_name] = {}
+                
+                # Calculate department totals for this month (payroll + department-specific contractors)
+                dept_totals_month = {}
+                total_personnel = 0
+                
+                for dept in ["Product Development", "Sales and Marketing", "Opex"]:
+                    payroll_value = payroll_by_dept[dept].get(month, 0)
+                    contractor_value = contractor_costs_by_dept[dept].get(month, 0)
+                    dept_total = payroll_value + contractor_value
+                    display_key = "Operations" if dept == "Opex" else dept
+                    dept_totals_month[display_key] = dept_total
+                    total_personnel += dept_total
+                
+                # Calculate percentages
+                if total_personnel > 0:
+                    for display_key, dept_total in dept_totals_month.items():
+                        chart_data[month_name][display_key] = (dept_total / total_personnel) * 100
+                else:
+                    chart_data[month_name]["Product Development"] = 0
+                    chart_data[month_name]["Sales and Marketing"] = 0
+                    chart_data[month_name]["Operations"] = 0
+        else:
+            if selected_chart in ["Department Breakdown", "Personnel Cost %"]:
+                chart_data[month_name] = {"Product Development": 0, "Sales and Marketing": 0, "Operations": 0}
+            else:
+                chart_data[month_name] = 0
+    
+    x_label = "Month"
 
-with dept_col1:
-    st.markdown(f"""
-    <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">🔧 Product Development</h4>
-        <h2 style="margin: 0.5rem 0 0 0;">${dept_totals["Product Development"]:,.0f}</h2>
-    </div>
-    """, unsafe_allow_html=True)
+# Display the chart
+if chart_data:
+    import plotly.graph_objects as go
+    
+    # Create Plotly figure
+    fig = go.Figure()
+    
+    if selected_chart in ["Department Breakdown", "Personnel Cost %"]:
+        # Create stacked bar chart for departments
+        departments = ["Product Development", "Sales and Marketing", "Opex"]
+        colors = ['#00D084', '#7B1FA2', '#F39C12']  # Green, Purple, Orange
+        
+        # Set y-axis title based on chart type
+        if selected_chart == "Personnel Cost %":
+            y_title = 'Percentage (%)'
+        else:
+            y_title = 'Amount ($)'
+        
+        for i, dept in enumerate(departments):
+            x_values = list(chart_data.keys())
+            # Map display name to data key for Opex
+            data_key = "Operations" if dept == "Opex" else dept
+            y_values = [chart_data[x].get(data_key, 0) for x in x_values]
+            
+            # Create hover template for each chart type
+            if selected_chart == "Personnel Cost %":
+                hover_template = f'<b>%{{x}}</b><br>{dept}: %{{y:.1f}}%<extra></extra>'
+            else:
+                hover_template = f'<b>%{{x}}</b><br>{dept}: $%{{y:,.0f}}<extra></extra>'
+            
+            fig.add_trace(go.Bar(
+                name=dept,
+                x=x_values,
+                y=y_values,
+                marker_color=colors[i],
+                opacity=0.8,
+                hovertemplate=hover_template
+            ))
+        
+        # Update layout for stacked bars
+        fig.update_layout(barmode='stack')
+        
+    else:
+        # Create regular single bar chart
+        # Set color based on chart type
+        if selected_chart == "Total Personnel Cost":
+            color = '#00D084'  # Main green
+        elif selected_chart == "Payroll Cost":
+            color = '#00B574'  # Dark green
+        elif selected_chart == "Contractor Cost":
+            color = '#F39C12'  # Orange
+        elif selected_chart == "Headcount":
+            color = '#3498DB'  # Blue
+        else:
+            color = '#7B1FA2'  # Purple
+        
+        # Format hover template based on chart type
+        if selected_chart == "Headcount":
+            hover_template = '<b>%{x}</b><br>%{y} people<extra></extra>'
+            y_title = 'Count'
+        else:
+            hover_template = '<b>%{x}</b><br>$%{y:,.0f}<extra></extra>'
+            y_title = 'Amount ($)'
+        
+        # Add bar trace
+        fig.add_trace(go.Bar(
+            x=list(chart_data.keys()),
+            y=list(chart_data.values()),
+            marker_color=color,
+            opacity=0.7,
+            hovertemplate=hover_template,
+            showlegend=False
+        ))
+    
+    # Update layout
+    fig.update_layout(
+        title=dict(
+            text=chart_title,
+            font=dict(size=18, color='#262730')
+        ),
+        xaxis=dict(
+            title=x_label,
+            showgrid=False,
+            tickangle=-45 if selected_period != "All Years" else 0
+        ),
+        yaxis=dict(
+            title=y_title,
+            showgrid=True,
+            gridcolor='rgba(128,128,128,0.2)',
+            tickformat='$,.0f' if selected_chart not in ["Headcount", "Personnel Cost %"] else (',' if selected_chart == "Headcount" else '.1f')
+        ),
+        hovermode='x unified',
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font=dict(family="Arial, sans-serif", size=12),
+        height=350,
+        margin=dict(l=50, r=50, t=80, b=50),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ) if selected_chart in ["Department Breakdown", "Personnel Cost %"] else {}
+    )
+    
+    # Display the chart
+    st.plotly_chart(fig, use_container_width=True)
 
-with dept_col2:
-    st.markdown(f"""
-    <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">📈 Sales and Marketing</h4>
-        <h2 style="margin: 0.5rem 0 0 0;">${dept_totals["Sales and Marketing"]:,.0f}</h2>
-    </div>
-    """, unsafe_allow_html=True)
 
-with dept_col3:
-    st.markdown(f"""
-    <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">⚙️ Operations</h4>
-        <h2 style="margin: 0.5rem 0 0 0;">${dept_totals["Opex"]:,.0f}</h2>
-    </div>
-    """, unsafe_allow_html=True)
-
-# Date-based insights
-st.markdown("**📊 Date-Based Insights:**")
-insight_col1, insight_col2 = st.columns(2)
-
-with insight_col1:
-    st.info("💡 Payroll costs are calculated based on hire and termination dates. Employees are only paid when they're actively employed during each month.")
-
-with insight_col2:
-    st.info("💡 Headcount changes are saved independently. Use the liquidity tab's 'Load Data From' feature to pull in saved headcount data and control effective dates.")
 
 # DATA MANAGEMENT
 st.markdown("---")
@@ -1856,27 +2179,33 @@ with col3:
             if contractors:
                 contractor_data = []
                 for contractor_id, contractor_data_dict in contractors.items():
-                    contractor_data.append({
-                        'Contractor ID': contractor_id,
-                        'Vendor': contractor_data_dict.get('vendor', ''),
-                        'Role': contractor_data_dict.get('role', ''),
-                        'Resources': contractor_data_dict.get('resources', 0),
-                        'Hourly Rate': contractor_data_dict.get('hourly_rate', 0),
-                        'Start Date': contractor_data_dict.get('start_date', ''),
-                        'End Date': contractor_data_dict.get('end_date', ''),
-                        'Monthly Rate': contractor_data_dict.get('resources', 0) * contractor_data_dict.get('hourly_rate', 0) * 40 * 4
-                    })
+                                    contractor_data.append({
+                    'Contractor ID': contractor_id,
+                    'Vendor': contractor_data_dict.get('vendor', ''),
+                    'Role': contractor_data_dict.get('role', ''),
+                    'Department': contractor_data_dict.get('department', 'Product Development'),
+                    'Resources': contractor_data_dict.get('resources', 0),
+                    'Hourly Rate': contractor_data_dict.get('hourly_rate', 0),
+                    'Start Date': contractor_data_dict.get('start_date', ''),
+                    'End Date': contractor_data_dict.get('end_date', ''),
+                    'Monthly Rate': contractor_data_dict.get('resources', 0) * contractor_data_dict.get('hourly_rate', 0) * 40 * 4
+                })
                 
                 if contractor_data:
                     contractor_df = pd.DataFrame(contractor_data)
                     contractor_df.to_excel(writer, sheet_name='Contractors', index=False)
             
             # Export Payroll Summary by Month
-            base_payroll, payroll_taxes, bonuses, contractor_costs, total_payroll_cost = calculate_total_personnel_costs()
+            base_payroll, payroll_taxes, bonuses, contractor_costs, total_payroll_cost, contractor_costs_by_dept = calculate_total_personnel_costs()
             payroll_by_dept, _ = calculate_monthly_payroll()
             
             payroll_summary = []
             for month in months:
+                # Calculate department totals including department-specific contractor costs
+                product_dev_total = payroll_by_dept['Product Development'].get(month, 0) + contractor_costs_by_dept['Product Development'].get(month, 0)
+                sales_marketing_total = payroll_by_dept['Sales and Marketing'].get(month, 0) + contractor_costs_by_dept['Sales and Marketing'].get(month, 0)
+                opex_total = payroll_by_dept['Opex'].get(month, 0) + contractor_costs_by_dept['Opex'].get(month, 0)
+                
                 payroll_summary.append({
                     'Month': month,
                     'Base Payroll': base_payroll.get(month, 0),
@@ -1885,14 +2214,104 @@ with col3:
                     'Total Payroll Cost': total_payroll_cost.get(month, 0),
                     'Contractor Costs': contractor_costs.get(month, 0),
                     'Total Personnel Costs': total_payroll_cost.get(month, 0) + contractor_costs.get(month, 0),
-                    'Product Development': payroll_by_dept['Product Development'].get(month, 0),
-                    'Sales and Marketing': payroll_by_dept['Sales and Marketing'].get(month, 0),
-                    'Opex': payroll_by_dept['Opex'].get(month, 0)
+                    'Product Development': product_dev_total,
+                    'Sales and Marketing': sales_marketing_total,
+                    'Opex': opex_total
                 })
             
             if payroll_summary:
                 payroll_df = pd.DataFrame(payroll_summary)
                 payroll_df.to_excel(writer, sheet_name='Payroll Summary', index=False)
+            
+            # Export Department Summary with contractor costs
+            dept_summary_data = []
+            years_dict = group_months_by_year(months)
+            
+            for year in sorted(years_dict.keys()):
+                year_months = years_dict[year]
+                for dept in ["Product Development", "Sales and Marketing", "Opex"]:
+                    # Calculate totals for this department and year
+                    payroll_total = sum(payroll_by_dept[dept].get(month, 0) for month in year_months)
+                    contractor_total = sum(contractor_costs_by_dept[dept].get(month, 0) for month in year_months)
+                    combined_total = payroll_total + contractor_total
+                    
+                    dept_summary_data.append({
+                        'Year': year,
+                        'Department': dept,
+                        'Payroll Cost': payroll_total,
+                        'Contractor Cost': contractor_total,
+                        'Total Department Cost': combined_total,
+                        'Average Monthly': combined_total / 12 if combined_total > 0 else 0
+                    })
+            
+            if dept_summary_data:
+                dept_summary_df = pd.DataFrame(dept_summary_data)
+                dept_summary_df.to_excel(writer, sheet_name='Department Summary', index=False)
+            
+            # Export Contractor Costs by Department and Month
+            contractor_breakdown_data = []
+            for month in months:
+                for dept in ["Product Development", "Sales and Marketing", "Opex"]:
+                    contractor_cost = contractor_costs_by_dept[dept].get(month, 0)
+                    if contractor_cost > 0:  # Only include months with contractor costs
+                        contractor_breakdown_data.append({
+                            'Month': month,
+                            'Department': dept,
+                            'Contractor Cost': contractor_cost
+                        })
+            
+            if contractor_breakdown_data:
+                contractor_breakdown_df = pd.DataFrame(contractor_breakdown_data)
+                contractor_breakdown_df.to_excel(writer, sheet_name='Contractor Breakdown', index=False)
+            
+            # Export Employee Bonuses
+            bonuses_data = st.session_state.model_data["payroll_data"]["employee_bonuses"]
+            if bonuses_data:
+                bonus_export_data = []
+                for bonus_id, bonus_data in bonuses_data.items():
+                    bonus_export_data.append({
+                        'Bonus ID': bonus_id,
+                        'Employee Name': bonus_data.get('employee_name', ''),
+                        'Bonus Amount': bonus_data.get('bonus_amount', 0),
+                        'Month': bonus_data.get('month', '')
+                    })
+                
+                if bonus_export_data:
+                    bonus_df = pd.DataFrame(bonus_export_data)
+                    bonus_df.to_excel(writer, sheet_name='Employee Bonuses', index=False)
+            
+            # Export Annual Department Totals Summary
+            annual_totals_data = []
+            for dept in ["Product Development", "Sales and Marketing", "Opex"]:
+                total_payroll = sum(payroll_by_dept[dept].values())
+                total_contractors = sum(contractor_costs_by_dept[dept].values())
+                total_combined = total_payroll + total_contractors
+                
+                annual_totals_data.append({
+                    'Department': dept,
+                    '6-Year Payroll Total': total_payroll,
+                    '6-Year Contractor Total': total_contractors,
+                    '6-Year Combined Total': total_combined,
+                    'Annual Average': total_combined / 6,
+                    'Monthly Average': total_combined / 72  # 6 years * 12 months
+                })
+            
+            # Add overall totals row
+            total_payroll_all = sum(sum(payroll_by_dept[dept].values()) for dept in ["Product Development", "Sales and Marketing", "Opex"])
+            total_contractors_all = sum(sum(contractor_costs_by_dept[dept].values()) for dept in ["Product Development", "Sales and Marketing", "Opex"])
+            total_combined_all = total_payroll_all + total_contractors_all
+            
+            annual_totals_data.append({
+                'Department': 'TOTAL',
+                '6-Year Payroll Total': total_payroll_all,
+                '6-Year Contractor Total': total_contractors_all,
+                '6-Year Combined Total': total_combined_all,
+                'Annual Average': total_combined_all / 6,
+                'Monthly Average': total_combined_all / 72
+            })
+            
+            annual_totals_df = pd.DataFrame(annual_totals_data)
+            annual_totals_df.to_excel(writer, sheet_name='Annual Totals', index=False)
         
         # Read the file data for download
         with open(temp_path, 'rb') as f:

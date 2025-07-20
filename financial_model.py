@@ -104,22 +104,29 @@ st.markdown("""
     
     /* Custom table container with fixed first column */
     .fixed-table-container {
-        display: flex;
         border-radius: 8px;
         overflow: hidden;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
         margin: 1rem 0;
         background-color: white;
         border: 1px solid #e0e0e0;
+        max-height: 1125px;
+        overflow-x: auto;
+        overflow-y: auto;
+        position: relative;
     }
     
     /* Fixed category column */
     .fixed-category-column {
+        position: sticky;
+        left: 0;
         width: 200px;
         min-width: 200px;
         background-color: #f8f9fa;
         border-right: 3px solid #00D084;
-        flex-shrink: 0;
+        z-index: 20;
+        box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
+        float: left;
     }
     
     .category-header {
@@ -134,6 +141,9 @@ st.markdown("""
         line-height: 44px !important;
         margin: 0;
         box-sizing: border-box;
+        position: sticky;
+        top: 0;
+        z-index: 30;
     }
     
     .category-cell {
@@ -162,11 +172,144 @@ st.markdown("""
         box-sizing: border-box;
     }
     
+    .section-header-cell {
+        padding: 0 12px;
+        font-weight: 700;
+        font-size: 13px;
+        border-top: 1px solid #ccc;
+        border-bottom: 1px solid #ccc;
+        background-color: #f0f0f0;
+        color: #333;
+        height: 44px !important;
+        line-height: 44px !important;
+        margin: 0;
+        box-sizing: border-box;
+    }
+    
+    .section-header-row {
+        border-top: 1px solid #ccc;
+    }
+    
+    /* Comprehensive income statement table */
+    .comprehensive-table {
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        margin: 1rem 0;
+        background-color: white;
+        border: 1px solid #e0e0e0;
+        max-height: 844px;
+        overflow: auto;
+    }
+    
+    .comprehensive-table table {
+        border-collapse: collapse;
+        width: 100%;
+        table-layout: fixed;
+    }
+    
+    .comprehensive-table th:first-child,
+    .comprehensive-table td:first-child {
+        position: sticky;
+        left: 0;
+        background-color: #f8f9fa;
+        border-right: 3px solid #00D084;
+        z-index: 20;
+        box-shadow: 2px 0 4px rgba(0, 0, 0, 0.1);
+        width: 200px;
+        min-width: 200px;
+        padding: 0 12px;
+        font-weight: 600;
+        font-size: 13px;
+        height: 44px !important;
+        line-height: 44px !important;
+        text-align: left;
+        box-sizing: border-box;
+    }
+    
+    .comprehensive-table th:first-child {
+        background-color: #00D084;
+        color: white;
+        z-index: 30;
+        font-weight: 700;
+        font-size: 14px;
+        position: sticky;
+        top: 0;
+    }
+    
+    .comprehensive-table th {
+        background-color: #f0f0f0;
+        padding: 0 4px;
+        font-weight: 600;
+        font-size: 13px;
+        text-align: center;
+        border-bottom: 1px solid #ddd;
+        border-right: 1px solid #e0e0e0;
+        width: 80px;
+        box-sizing: border-box;
+        height: 44px !important;
+        line-height: 44px !important;
+        position: sticky;
+        top: 0;
+        z-index: 15;
+    }
+    
+    .comprehensive-table th.year-total {
+        background-color: #f0f9f6;
+        border-right: 2px solid #00D084;
+        font-weight: 700;
+        width: 100px;
+    }
+    
+    .comprehensive-table td {
+        padding: 0 4px;
+        font-size: 13px;
+        text-align: right;
+        border-bottom: 1px solid #e0e0e0;
+        border-right: 1px solid #e0e0e0;
+        width: 80px;
+        height: 44px !important;
+        line-height: 44px !important;
+        box-sizing: border-box;
+    }
+    
+    .comprehensive-table td.year-total {
+        background-color: #f0f9f6;
+        font-weight: 700;
+        border-right: 2px solid #00D084;
+        width: 100px;
+    }
+    
+    .comprehensive-table .section-header td:first-child {
+        background-color: #f0f0f0;
+        color: #333;
+        border-top: 1px solid #ccc;
+        border-bottom: 1px solid #ccc;
+        font-weight: 700;
+    }
+    
+    .comprehensive-table .section-header td {
+        background-color: #f0f0f0;
+        border-top: 1px solid #ccc;
+        border-bottom: 1px solid #ccc;
+    }
+    
+    .comprehensive-table .total-row td:first-child {
+        background-color: #e8f5e8;
+        color: #00D084;
+        border-top: 2px solid #00D084;
+        font-weight: 700;
+    }
+    
+    .comprehensive-table .total-row td {
+        border-top: 2px solid #00D084;
+        background-color: #f0f9f6;
+        font-weight: 700;
+        color: #00D084;
+    }
+    
     /* Scrollable data area */
     .scrollable-data {
-        flex: 1;
-        overflow-x: auto;
-        overflow-y: hidden;
+        margin-left: 203px;
         background-color: white;
     }
     
@@ -217,6 +360,10 @@ st.markdown("""
         line-height: 43px !important;
         margin: 0;
         vertical-align: middle;
+        position: sticky;
+        top: 0;
+        z-index: 15;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     }
     
     .data-header.year-total {
@@ -230,6 +377,10 @@ st.markdown("""
         margin: 0;
         vertical-align: middle;
         text-align: center !important;
+        position: sticky;
+        top: 0;
+        z-index: 15;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     }
     
     .data-cell {
@@ -760,6 +911,806 @@ def create_custom_total_row(total_dict, row_label, show_monthly=True):
     
     st.markdown(html_content, unsafe_allow_html=True)
 
+# Helper function to create comprehensive income statement table
+def create_comprehensive_income_statement(show_monthly=True, include_gross_margin=False):
+    """Create one unified income statement table with all sections"""
+    
+    # Group months by year
+    years_dict = group_months_by_year(months)
+    
+    # Create column headers
+    if show_monthly:
+        data_columns = []
+        for year in sorted(years_dict.keys()):
+            data_columns.extend(years_dict[year])
+            data_columns.append(f"{year} Total")
+    else:
+        data_columns = [f"{year} Total" for year in sorted(years_dict.keys())]
+    
+    # Define all sections and their data
+    revenue_categories = ["Subscription", "Transactional", "Implementation", "Maintenance"]
+    cost_of_sales_categories = ["Subscription", "Transactional", "Implementation", "Maintenance"]
+    gross_profit_categories = ["Subscription", "Transactional", "Implementation", "Maintenance"]
+    
+    # Get SG&A categories
+    if ("liquidity_data" in st.session_state.model_data and 
+        "category_order" in st.session_state.model_data["liquidity_data"]):
+        sga_categories = st.session_state.model_data["liquidity_data"]["category_order"]
+    else:
+        sga_categories = [
+            "Payroll", "Contractors", "License Fees", "Travel", "Shows", "Associations",
+            "Marketing", "Company Vehicle", "Grant Writer", "Insurance", "Legal / Professional Fees",
+            "Permitting/Fees/Licensing", "Shared Services", "Consultants/Audit/Tax", "Pritchard AMEX", "Contingencies"
+        ]
+    
+    # Calculate totals
+    total_revenue = {}
+    total_cost_of_sales = {}
+    total_gross_profit = {}
+    total_gross_margin = {}
+    total_sga = {}
+    net_income = {}
+    
+    for month in months:
+        total_revenue[month] = sum(
+            st.session_state.model_data.get("revenue", {}).get(cat, {}).get(month, 0) 
+            for cat in revenue_categories
+        )
+        total_cost_of_sales[month] = sum(
+            st.session_state.model_data.get("cogs", {}).get(cat, {}).get(month, 0) 
+            for cat in cost_of_sales_categories
+        )
+        total_gross_profit[month] = total_revenue[month] - total_cost_of_sales[month]
+        total_gross_margin[month] = (total_gross_profit[month] / total_revenue[month] * 100) if total_revenue[month] > 0 else 0
+        total_sga[month] = sum(
+            st.session_state.model_data.get("sga_expenses", {}).get(cat, {}).get(month, 0) 
+            for cat in sga_categories
+        )
+        net_income[month] = total_gross_profit[month] - total_sga[month]
+    
+    # Build HTML table using new comprehensive table structure
+    html_content = '<div class="comprehensive-table">'
+    html_content += '<table>'
+    
+    # Define column groups for consistent width
+    html_content += '<colgroup>'
+    html_content += '<col style="width: 200px;">'  # First column (categories)
+    for col in data_columns:
+        if "Total" in col:
+            html_content += '<col style="width: 100px;">'
+        else:
+            html_content += '<col style="width: 80px;">'
+    html_content += '</colgroup>'
+    
+    # Header row
+    html_content += '<thead><tr>'
+    html_content += '<th>Income Statement</th>'
+    for col in data_columns:
+        css_class = "year-total" if "Total" in col else ""
+        html_content += f'<th class="{css_class}">{col}</th>'
+    html_content += '</tr></thead>'
+    
+    # Data rows
+    html_content += '<tbody>'
+    
+    # Revenue section header
+    html_content += '<tr class="section-header">'
+    html_content += '<td>Revenue</td>'
+    for col in data_columns:
+        html_content += '<td></td>'
+    html_content += '</tr>'
+    
+    for category in revenue_categories:
+        html_content += '<tr>'
+        html_content += f'<td>  {category}</td>'
+        if show_monthly:
+            for year in sorted(years_dict.keys()):
+                for month in years_dict[year]:
+                    value = st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0)
+                    formatted_value = format_number(value)
+                    html_content += f'<td>{formatted_value}</td>'
+                
+                yearly_total = sum(st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                formatted_yearly_total = format_number(yearly_total)
+                html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+        else:
+            for year in sorted(years_dict.keys()):
+                yearly_total = sum(st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                formatted_yearly_total = format_number(yearly_total)
+                html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+        html_content += '</tr>'
+    
+    # Total Revenue row
+    html_content += '<tr class="total-row">'
+    html_content += '<td>Total Revenue</td>'
+    if show_monthly:
+        for year in sorted(years_dict.keys()):
+            for month in years_dict[year]:
+                value = total_revenue.get(month, 0)
+                formatted_value = format_number(value)
+                html_content += f'<td>{formatted_value}</td>'
+            yearly_total = sum(total_revenue.get(month, 0) for month in years_dict[year])
+            formatted_yearly_total = format_number(yearly_total)
+            html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+    else:
+        for year in sorted(years_dict.keys()):
+            yearly_total = sum(total_revenue.get(month, 0) for month in years_dict[year])
+            formatted_yearly_total = format_number(yearly_total)
+            html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+    html_content += '</tr>'
+    
+    # Cost of Sales section header
+    html_content += '<tr class="section-header">'
+    html_content += '<td>Cost of Sales</td>'
+    for col in data_columns:
+        html_content += '<td></td>'
+    html_content += '</tr>'
+    
+    for category in cost_of_sales_categories:
+        html_content += '<tr>'
+        html_content += f'<td>  {category}</td>'
+        if show_monthly:
+            for year in sorted(years_dict.keys()):
+                for month in years_dict[year]:
+                    value = st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0)
+                    formatted_value = format_number(value)
+                    html_content += f'<td>{formatted_value}</td>'
+                
+                yearly_total = sum(st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                formatted_yearly_total = format_number(yearly_total)
+                html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+        else:
+            for year in sorted(years_dict.keys()):
+                yearly_total = sum(st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                formatted_yearly_total = format_number(yearly_total)
+                html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+        html_content += '</tr>'
+    
+    # Total Cost of Sales row
+    html_content += '<tr class="total-row">'
+    html_content += '<td>Total Cost of Sales</td>'
+    if show_monthly:
+        for year in sorted(years_dict.keys()):
+            for month in years_dict[year]:
+                value = total_cost_of_sales.get(month, 0)
+                formatted_value = format_number(value)
+                html_content += f'<td>{formatted_value}</td>'
+            yearly_total = sum(total_cost_of_sales.get(month, 0) for month in years_dict[year])
+            formatted_yearly_total = format_number(yearly_total)
+            html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+    else:
+        for year in sorted(years_dict.keys()):
+            yearly_total = sum(total_cost_of_sales.get(month, 0) for month in years_dict[year])
+            formatted_yearly_total = format_number(yearly_total)
+            html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+    html_content += '</tr>'
+    
+    # Gross Profit section header
+    html_content += '<tr class="section-header">'
+    html_content += '<td>Gross Profit</td>'
+    for col in data_columns:
+        html_content += '<td></td>'
+    html_content += '</tr>'
+    
+    for category in gross_profit_categories:
+        html_content += '<tr>'
+        html_content += f'<td>  {category}</td>'
+        if show_monthly:
+            for year in sorted(years_dict.keys()):
+                for month in years_dict[year]:
+                    revenue = st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0)
+                    cost = st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0)
+                    value = revenue - cost
+                    formatted_value = format_number(value)
+                    html_content += f'<td>{formatted_value}</td>'
+                
+                yearly_revenue = sum(st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                yearly_cost = sum(st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                yearly_total = yearly_revenue - yearly_cost
+                formatted_yearly_total = format_number(yearly_total)
+                html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+        else:
+            for year in sorted(years_dict.keys()):
+                yearly_revenue = sum(st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                yearly_cost = sum(st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                yearly_total = yearly_revenue - yearly_cost
+                formatted_yearly_total = format_number(yearly_total)
+                html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+        html_content += '</tr>'
+    
+    # Total Gross Profit row
+    html_content += '<tr class="total-row">'
+    html_content += '<td>Total Gross Profit</td>'
+    if show_monthly:
+        for year in sorted(years_dict.keys()):
+            for month in years_dict[year]:
+                value = total_gross_profit.get(month, 0)
+                formatted_value = format_number(value)
+                html_content += f'<td>{formatted_value}</td>'
+            yearly_total = sum(total_gross_profit.get(month, 0) for month in years_dict[year])
+            formatted_yearly_total = format_number(yearly_total)
+            html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+    else:
+        for year in sorted(years_dict.keys()):
+            yearly_total = sum(total_gross_profit.get(month, 0) for month in years_dict[year])
+            formatted_yearly_total = format_number(yearly_total)
+            html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+    html_content += '</tr>'
+    
+    # Gross Margin section (if enabled)
+    if include_gross_margin:
+        html_content += '<tr class="section-header">'
+        html_content += '<td>Gross Margin %</td>'
+        for col in data_columns:
+            html_content += '<td></td>'
+        html_content += '</tr>'
+        
+        for category in gross_profit_categories:
+            html_content += '<tr>'
+            html_content += f'<td>  {category}</td>'
+            if show_monthly:
+                for year in sorted(years_dict.keys()):
+                    for month in years_dict[year]:
+                        revenue = st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0)
+                        cost = st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0)
+                        gross_profit = revenue - cost
+                        value = (gross_profit / revenue * 100) if revenue > 0 else 0
+                        formatted_value = format_percentage(value)
+                        html_content += f'<td>{formatted_value}</td>'
+                    
+                    yearly_revenue = sum(st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                    yearly_cost = sum(st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                    yearly_gross_profit = yearly_revenue - yearly_cost
+                    yearly_percentage = (yearly_gross_profit / yearly_revenue * 100) if yearly_revenue > 0 else 0
+                    formatted_yearly_total = format_percentage(yearly_percentage)
+                    html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+            else:
+                for year in sorted(years_dict.keys()):
+                    yearly_revenue = sum(st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                    yearly_cost = sum(st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                    yearly_gross_profit = yearly_revenue - yearly_cost
+                    yearly_percentage = (yearly_gross_profit / yearly_revenue * 100) if yearly_revenue > 0 else 0
+                    formatted_yearly_total = format_percentage(yearly_percentage)
+                    html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+            html_content += '</tr>'
+        
+        # Total Gross Margin row
+        html_content += '<tr class="total-row">'
+        html_content += '<td>Total Gross Margin %</td>'
+        if show_monthly:
+            for year in sorted(years_dict.keys()):
+                for month in years_dict[year]:
+                    value = total_gross_margin.get(month, 0)
+                    formatted_value = format_percentage(value)
+                    html_content += f'<td>{formatted_value}</td>'
+                
+                yearly_gross_profit = sum(total_gross_profit.get(month, 0) for month in years_dict[year])
+                yearly_revenue = sum(total_revenue.get(month, 0) for month in years_dict[year])
+                yearly_percentage = (yearly_gross_profit / yearly_revenue * 100) if yearly_revenue > 0 else 0
+                formatted_yearly_total = format_percentage(yearly_percentage)
+                html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+        else:
+            for year in sorted(years_dict.keys()):
+                yearly_gross_profit = sum(total_gross_profit.get(month, 0) for month in years_dict[year])
+                yearly_revenue = sum(total_revenue.get(month, 0) for month in years_dict[year])
+                yearly_percentage = (yearly_gross_profit / yearly_revenue * 100) if yearly_revenue > 0 else 0
+                formatted_yearly_total = format_percentage(yearly_percentage)
+                html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+        html_content += '</tr>'
+    
+    # SG&A section header
+    html_content += '<tr class="section-header">'
+    html_content += '<td>SG&A Expenses</td>'
+    for col in data_columns:
+        html_content += '<td></td>'
+    html_content += '</tr>'
+    
+    for category in sga_categories:
+        html_content += '<tr>'
+        html_content += f'<td>  {category}</td>'
+        if show_monthly:
+            for year in sorted(years_dict.keys()):
+                for month in years_dict[year]:
+                    value = st.session_state.model_data.get("sga_expenses", {}).get(category, {}).get(month, 0)
+                    formatted_value = format_number(value)
+                    html_content += f'<td>{formatted_value}</td>'
+                
+                yearly_total = sum(st.session_state.model_data.get("sga_expenses", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                formatted_yearly_total = format_number(yearly_total)
+                html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+        else:
+            for year in sorted(years_dict.keys()):
+                yearly_total = sum(st.session_state.model_data.get("sga_expenses", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                formatted_yearly_total = format_number(yearly_total)
+                html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+        html_content += '</tr>'
+    
+    # Total SG&A row
+    html_content += '<tr class="total-row">'
+    html_content += '<td>Total SG&A Expenses</td>'
+    if show_monthly:
+        for year in sorted(years_dict.keys()):
+            for month in years_dict[year]:
+                value = total_sga.get(month, 0)
+                formatted_value = format_number(value)
+                html_content += f'<td>{formatted_value}</td>'
+            yearly_total = sum(total_sga.get(month, 0) for month in years_dict[year])
+            formatted_yearly_total = format_number(yearly_total)
+            html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+    else:
+        for year in sorted(years_dict.keys()):
+            yearly_total = sum(total_sga.get(month, 0) for month in years_dict[year])
+            formatted_yearly_total = format_number(yearly_total)
+            html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+    html_content += '</tr>'
+    
+    # Net Income row
+    html_content += '<tr class="total-row">'
+    html_content += '<td>Net Income</td>'
+    if show_monthly:
+        for year in sorted(years_dict.keys()):
+            for month in years_dict[year]:
+                value = net_income.get(month, 0)
+                formatted_value = format_number_with_color(value, apply_red_for_negative=True)
+                html_content += f'<td>{formatted_value}</td>'
+            yearly_total = sum(net_income.get(month, 0) for month in years_dict[year])
+            formatted_yearly_total = format_number_with_color(yearly_total, apply_red_for_negative=True)
+            html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+    else:
+        for year in sorted(years_dict.keys()):
+            yearly_total = sum(net_income.get(month, 0) for month in years_dict[year])
+            formatted_yearly_total = format_number_with_color(yearly_total, apply_red_for_negative=True)
+            html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+    html_content += '</tr>'
+    
+    html_content += '</tbody></table>'
+    html_content += '</div>'
+    html_content += '</div>'
+    
+    st.markdown(html_content, unsafe_allow_html=True)
+
+# Helper function to create combined table with total row
+def create_custom_table_with_total(categories, data_key, total_data, total_label, show_monthly=True):
+    """Create custom table with component rows and total row combined"""
+    # Initialize data if not exists
+    if data_key not in st.session_state.model_data:
+        st.session_state.model_data[data_key] = {}
+        for category in categories:
+            st.session_state.model_data[data_key][category] = {month: 0 for month in months}
+    
+    # Group months by year
+    years_dict = group_months_by_year(months)
+    
+    # Create column headers
+    if show_monthly:
+        data_columns = []
+        for year in sorted(years_dict.keys()):
+            data_columns.extend(years_dict[year])
+            data_columns.append(f"{year} Total")
+    else:
+        data_columns = [f"{year} Total" for year in sorted(years_dict.keys())]
+    
+    # Build HTML table
+    html_content = '<div class="fixed-table-container">'
+    
+    # Fixed category column
+    html_content += '<div class="fixed-category-column">'
+    html_content += '<div class="category-header">Category</div>'
+    
+    for category in categories:
+        html_content += f'<div class="category-cell">{category}</div>'
+    
+    # Add total row with special styling
+    html_content += f'<div class="category-total">{total_label}</div>'
+    html_content += '</div>'
+    
+    # Scrollable data area
+    html_content += '<div class="scrollable-data">'
+    html_content += '<table class="data-table"><colgroup>'
+    
+    # Define column groups for consistent width
+    for col in data_columns:
+        if "Total" in col:
+            html_content += '<col style="width: 100px;">'
+        else:
+            html_content += '<col style="width: 80px;">'
+    
+    html_content += '</colgroup>'
+    
+    # Header row
+    html_content += '<thead><tr style="height: 43px !important;">'
+    for col in data_columns:
+        css_class = "data-header year-total" if "Total" in col else "data-header"
+        html_content += f'<th class="{css_class}" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important; text-align: center !important;">{col}</th>'
+    html_content += '</tr></thead>'
+    
+    # Data rows
+    html_content += '<tbody>'
+    for category in categories:
+        html_content += '<tr style="height: 43px !important;">'
+        
+        if show_monthly:
+            for year in sorted(years_dict.keys()):
+                yearly_total = 0
+                for month in years_dict[year]:
+                    value = st.session_state.model_data[data_key].get(category, {}).get(month, 0)
+                    if data_key == "gross_margin":
+                        formatted_value = format_percentage(value)
+                    else:
+                        formatted_value = format_number(value)
+                    html_content += f'<td class="data-cell" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;">{formatted_value}</td>'
+                    yearly_total += value
+                
+                if data_key == "gross_margin":
+                    # For gross margin, calculate correct percentage: Total Gross Profit / Total Revenue for the year
+                    yearly_revenue = 0
+                    yearly_gross_profit = 0
+                    for month in years_dict[year]:
+                        revenue = st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0)
+                        gross_profit = st.session_state.model_data.get("gross_profit", {}).get(category, {}).get(month, 0)
+                        yearly_revenue += revenue
+                        yearly_gross_profit += gross_profit
+                    
+                    yearly_percentage = (yearly_gross_profit / yearly_revenue * 100) if yearly_revenue > 0 else 0
+                    formatted_yearly_total = format_percentage(yearly_percentage)
+                else:
+                    formatted_yearly_total = format_number(yearly_total)
+                html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{formatted_yearly_total}</strong></td>'
+        else:
+            for year in sorted(years_dict.keys()):
+                if data_key == "gross_margin":
+                    # For gross margin, calculate correct percentage: Total Gross Profit / Total Revenue for the year
+                    yearly_revenue = sum(
+                        st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0)
+                        for month in years_dict[year]
+                    )
+                    yearly_gross_profit = sum(
+                        st.session_state.model_data.get("gross_profit", {}).get(category, {}).get(month, 0)
+                        for month in years_dict[year]
+                    )
+                    yearly_percentage = (yearly_gross_profit / yearly_revenue * 100) if yearly_revenue > 0 else 0
+                    formatted_yearly_total = format_percentage(yearly_percentage)
+                else:
+                    yearly_total = sum(
+                        st.session_state.model_data[data_key].get(category, {}).get(month, 0)
+                        for month in years_dict[year]
+                    )
+                    formatted_yearly_total = format_number(yearly_total)
+                html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{formatted_yearly_total}</strong></td>'
+        
+        html_content += '</tr>'
+    
+    # Add total row with special styling
+    html_content += '<tr class="total-row" style="height: 43px !important;">'
+    
+    # Check if this is Net Income row to apply red formatting for negatives
+    is_net_income = total_label == "Net Income"
+    # Check if this is a percentage row
+    is_percentage = "%" in total_label
+    
+    if show_monthly:
+        for year in sorted(years_dict.keys()):
+            yearly_total = 0
+            for month in years_dict[year]:
+                value = total_data.get(month, 0)
+                if is_percentage:
+                    formatted_value = format_percentage(value)
+                else:
+                    formatted_value = format_number_with_color(value, apply_red_for_negative=is_net_income)
+                html_content += f'<td class="data-cell" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;">{formatted_value}</td>'
+                yearly_total += value
+            
+            if is_percentage:
+                # For percentage rows, calculate average percentage for the year
+                yearly_avg = yearly_total / len(years_dict[year])
+                formatted_yearly_total = format_percentage(yearly_avg)
+            else:
+                formatted_yearly_total = format_number_with_color(yearly_total, apply_red_for_negative=is_net_income)
+            html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{formatted_yearly_total}</strong></td>'
+    else:
+        for year in sorted(years_dict.keys()):
+            if is_percentage:
+                # For percentage rows, calculate average percentage for the year
+                yearly_avg = sum(total_data.get(month, 0) for month in years_dict[year]) / len(years_dict[year])
+                formatted_yearly_total = format_percentage(yearly_avg)
+            else:
+                yearly_total = sum(total_data.get(month, 0) for month in years_dict[year])
+                formatted_yearly_total = format_number_with_color(yearly_total, apply_red_for_negative=is_net_income)
+            html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{formatted_yearly_total}</strong></td>'
+    
+    html_content += '</tr>'
+    html_content += '</tbody></table>'
+    html_content += '</div>'
+    html_content += '</div>'
+    
+    st.markdown(html_content, unsafe_allow_html=True)
+
+# Helper function to create combined percentage table with special total row calculation
+def create_custom_percentage_table_with_total(categories, data_key, monthly_dict, numerator_dict, denominator_dict, total_label, show_monthly=True):
+    """Create custom percentage table with component rows and special total row calculation"""
+    # Initialize data if not exists
+    if data_key not in st.session_state.model_data:
+        st.session_state.model_data[data_key] = {}
+        for category in categories:
+            st.session_state.model_data[data_key][category] = {month: 0 for month in months}
+    
+    # Group months by year
+    years_dict = group_months_by_year(months)
+    
+    # Create column headers
+    if show_monthly:
+        data_columns = []
+        for year in sorted(years_dict.keys()):
+            data_columns.extend(years_dict[year])
+            data_columns.append(f"{year} Total")
+    else:
+        data_columns = [f"{year} Total" for year in sorted(years_dict.keys())]
+    
+    # Build HTML table
+    html_content = '<div class="fixed-table-container">'
+    
+    # Fixed category column
+    html_content += '<div class="fixed-category-column">'
+    html_content += '<div class="category-header">Category</div>'
+    
+    for category in categories:
+        html_content += f'<div class="category-cell">{category}</div>'
+    
+    # Add total row with special styling
+    html_content += f'<div class="category-total">{total_label}</div>'
+    html_content += '</div>'
+    
+    # Scrollable data area
+    html_content += '<div class="scrollable-data">'
+    html_content += '<table class="data-table"><colgroup>'
+    
+    # Define column groups for consistent width
+    for col in data_columns:
+        if "Total" in col:
+            html_content += '<col style="width: 100px;">'
+        else:
+            html_content += '<col style="width: 80px;">'
+    
+    html_content += '</colgroup>'
+    
+    # Header row
+    html_content += '<thead><tr style="height: 43px !important;">'
+    for col in data_columns:
+        css_class = "data-header year-total" if "Total" in col else "data-header"
+        html_content += f'<th class="{css_class}" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important; text-align: center !important;">{col}</th>'
+    html_content += '</tr></thead>'
+    
+    # Data rows
+    html_content += '<tbody>'
+    for category in categories:
+        html_content += '<tr style="height: 43px !important;">'
+        
+        if show_monthly:
+            for year in sorted(years_dict.keys()):
+                yearly_total = 0
+                for month in years_dict[year]:
+                    value = st.session_state.model_data[data_key].get(category, {}).get(month, 0)
+                    formatted_value = format_percentage(value)
+                    html_content += f'<td class="data-cell" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;">{formatted_value}</td>'
+                    yearly_total += value
+                
+                # For gross margin, calculate correct percentage: Total Gross Profit / Total Revenue for the year
+                yearly_revenue = 0
+                yearly_gross_profit = 0
+                for month in years_dict[year]:
+                    revenue = st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0)
+                    gross_profit = st.session_state.model_data.get("gross_profit", {}).get(category, {}).get(month, 0)
+                    yearly_revenue += revenue
+                    yearly_gross_profit += gross_profit
+                
+                yearly_percentage = (yearly_gross_profit / yearly_revenue * 100) if yearly_revenue > 0 else 0
+                formatted_yearly_total = format_percentage(yearly_percentage)
+                html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{formatted_yearly_total}</strong></td>'
+        else:
+            for year in sorted(years_dict.keys()):
+                # For gross margin, calculate correct percentage: Total Gross Profit / Total Revenue for the year
+                yearly_revenue = sum(
+                    st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0)
+                    for month in years_dict[year]
+                )
+                yearly_gross_profit = sum(
+                    st.session_state.model_data.get("gross_profit", {}).get(category, {}).get(month, 0)
+                    for month in years_dict[year]
+                )
+                yearly_percentage = (yearly_gross_profit / yearly_revenue * 100) if yearly_revenue > 0 else 0
+                formatted_yearly_total = format_percentage(yearly_percentage)
+                html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{formatted_yearly_total}</strong></td>'
+        
+        html_content += '</tr>'
+    
+    # Add total row with special yearly percentage calculation
+    html_content += '<tr class="total-row" style="height: 43px !important;">'
+    
+    if show_monthly:
+        for year in sorted(years_dict.keys()):
+            # Monthly values
+            for month in years_dict[year]:
+                value = monthly_dict.get(month, 0)
+                formatted_value = format_percentage(value)
+                html_content += f'<td class="data-cell" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;">{formatted_value}</td>'
+            
+            # Yearly total - calculate percentage correctly
+            yearly_numerator = sum(numerator_dict.get(month, 0) for month in years_dict[year])
+            yearly_denominator = sum(denominator_dict.get(month, 0) for month in years_dict[year])
+            yearly_percentage = (yearly_numerator / yearly_denominator * 100) if yearly_denominator > 0 else 0
+            formatted_yearly_total = format_percentage(yearly_percentage)
+            html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{formatted_yearly_total}</strong></td>'
+    else:
+        for year in sorted(years_dict.keys()):
+            # Calculate percentage correctly for yearly view
+            yearly_numerator = sum(numerator_dict.get(month, 0) for month in years_dict[year])
+            yearly_denominator = sum(denominator_dict.get(month, 0) for month in years_dict[year])
+            yearly_percentage = (yearly_numerator / yearly_denominator * 100) if yearly_denominator > 0 else 0
+            formatted_yearly_total = format_percentage(yearly_percentage)
+            html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{formatted_yearly_total}</strong></td>'
+    
+    html_content += '</tr>'
+    html_content += '</tbody></table>'
+    html_content += '</div>'
+    
+    st.markdown(html_content, unsafe_allow_html=True)
+
+# Helper function to create combined table with total row
+def create_custom_table_with_total(categories, data_key, total_data, total_label, show_monthly=True):
+    """Create custom table with component rows and total row combined"""
+    # Initialize data if not exists
+    if data_key not in st.session_state.model_data:
+        st.session_state.model_data[data_key] = {}
+        for category in categories:
+            st.session_state.model_data[data_key][category] = {month: 0 for month in months}
+    
+    # Group months by year
+    years_dict = group_months_by_year(months)
+    
+    # Create column headers
+    if show_monthly:
+        data_columns = []
+        for year in sorted(years_dict.keys()):
+            data_columns.extend(years_dict[year])
+            data_columns.append(f"{year} Total")
+    else:
+        data_columns = [f"{year} Total" for year in sorted(years_dict.keys())]
+    
+    # Build HTML table
+    html_content = '<div class="fixed-table-container">'
+    
+    # Fixed category column
+    html_content += '<div class="fixed-category-column">'
+    html_content += '<div class="category-header">Category</div>'
+    
+    for category in categories:
+        html_content += f'<div class="category-cell">{category}</div>'
+    
+    # Add total row with special styling
+    html_content += f'<div class="category-total">{total_label}</div>'
+    html_content += '</div>'
+    
+    # Scrollable data area
+    html_content += '<div class="scrollable-data">'
+    html_content += '<table class="data-table"><colgroup>'
+    
+    # Define column groups for consistent width
+    for col in data_columns:
+        if "Total" in col:
+            html_content += '<col style="width: 100px;">'
+        else:
+            html_content += '<col style="width: 80px;">'
+    
+    html_content += '</colgroup>'
+    
+    # Header row
+    html_content += '<thead><tr style="height: 43px !important;">'
+    for col in data_columns:
+        css_class = "data-header year-total" if "Total" in col else "data-header"
+        html_content += f'<th class="{css_class}" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important; text-align: center !important;">{col}</th>'
+    html_content += '</tr></thead>'
+    
+    # Data rows
+    html_content += '<tbody>'
+    for category in categories:
+        html_content += '<tr style="height: 43px !important;">'
+        
+        if show_monthly:
+            for year in sorted(years_dict.keys()):
+                yearly_total = 0
+                for month in years_dict[year]:
+                    value = st.session_state.model_data[data_key].get(category, {}).get(month, 0)
+                    if data_key == "gross_margin":
+                        formatted_value = format_percentage(value)
+                    else:
+                        formatted_value = format_number(value)
+                    html_content += f'<td class="data-cell" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;">{formatted_value}</td>'
+                    yearly_total += value
+                
+                if data_key == "gross_margin":
+                    # For gross margin, calculate correct percentage: Total Gross Profit / Total Revenue for the year
+                    yearly_revenue = 0
+                    yearly_gross_profit = 0
+                    for month in years_dict[year]:
+                        revenue = st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0)
+                        gross_profit = st.session_state.model_data.get("gross_profit", {}).get(category, {}).get(month, 0)
+                        yearly_revenue += revenue
+                        yearly_gross_profit += gross_profit
+                    
+                    yearly_percentage = (yearly_gross_profit / yearly_revenue * 100) if yearly_revenue > 0 else 0
+                    formatted_yearly_total = format_percentage(yearly_percentage)
+                else:
+                    formatted_yearly_total = format_number(yearly_total)
+                html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{formatted_yearly_total}</strong></td>'
+        else:
+            for year in sorted(years_dict.keys()):
+                if data_key == "gross_margin":
+                    # For gross margin, calculate correct percentage: Total Gross Profit / Total Revenue for the year
+                    yearly_revenue = sum(
+                        st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0)
+                        for month in years_dict[year]
+                    )
+                    yearly_gross_profit = sum(
+                        st.session_state.model_data.get("gross_profit", {}).get(category, {}).get(month, 0)
+                        for month in years_dict[year]
+                    )
+                    yearly_percentage = (yearly_gross_profit / yearly_revenue * 100) if yearly_revenue > 0 else 0
+                    formatted_yearly_total = format_percentage(yearly_percentage)
+                else:
+                    yearly_total = sum(
+                        st.session_state.model_data[data_key].get(category, {}).get(month, 0)
+                        for month in years_dict[year]
+                    )
+                    formatted_yearly_total = format_number(yearly_total)
+                html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{formatted_yearly_total}</strong></td>'
+        
+        html_content += '</tr>'
+    
+    # Add total row with special styling
+    html_content += '<tr class="total-row" style="height: 43px !important;">'
+    
+    # Check if this is Net Income row to apply red formatting for negatives
+    is_net_income = total_label == "Net Income"
+    # Check if this is a percentage row
+    is_percentage = "%" in total_label
+    
+    if show_monthly:
+        for year in sorted(years_dict.keys()):
+            yearly_total = 0
+            for month in years_dict[year]:
+                value = total_data.get(month, 0)
+                if is_percentage:
+                    formatted_value = format_percentage(value)
+                else:
+                    formatted_value = format_number_with_color(value, apply_red_for_negative=is_net_income)
+                html_content += f'<td class="data-cell" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;">{formatted_value}</td>'
+                yearly_total += value
+            
+            if is_percentage:
+                # For percentage rows, calculate average percentage for the year
+                yearly_avg = yearly_total / len(years_dict[year])
+                formatted_yearly_total = format_percentage(yearly_avg)
+            else:
+                formatted_yearly_total = format_number_with_color(yearly_total, apply_red_for_negative=is_net_income)
+            html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{formatted_yearly_total}</strong></td>'
+    else:
+        for year in sorted(years_dict.keys()):
+            if is_percentage:
+                # For percentage rows, calculate average percentage for the year
+                yearly_avg = sum(total_data.get(month, 0) for month in years_dict[year]) / len(years_dict[year])
+                formatted_yearly_total = format_percentage(yearly_avg)
+            else:
+                yearly_total = sum(total_data.get(month, 0) for month in years_dict[year])
+                formatted_yearly_total = format_number_with_color(yearly_total, apply_red_for_negative=is_net_income)
+            html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{formatted_yearly_total}</strong></td>'
+    
+    html_content += '</tr>'
+    html_content += '</tbody></table>'
+    html_content += '</div>'
+    html_content += '</div>'
+    
+    st.markdown(html_content, unsafe_allow_html=True)
+
 # Header with SHAED branding
 st.markdown("""
 <div class="main-header">
@@ -818,13 +1769,13 @@ with view_col1:
 
 show_monthly = view_mode == "Monthly + Yearly"
 
-# REVENUE SECTION
-st.markdown('<div class="section-header">💰 Revenue</div>', unsafe_allow_html=True)
-st.info("📝 Revenue will be populated from the Revenue Assumptions dashboard")
+# COMPREHENSIVE INCOME STATEMENT
+st.markdown('<div class="section-header">📊 Income Statement</div>', unsafe_allow_html=True)
+st.info("📝 Data populated from Revenue, Gross Profit, and Liquidity dashboards")
 
-# Updated revenue categories in new order
+# Calculate all data for the comprehensive income statement
 revenue_categories = ["Subscription", "Transactional", "Implementation", "Maintenance"]
-create_custom_table_with_years(revenue_categories, "revenue", show_monthly)
+cost_of_sales_categories = ["Subscription", "Transactional", "Implementation", "Maintenance"]
 
 # Calculate total revenue
 total_revenue = {}
@@ -834,17 +1785,6 @@ for month in months:
         for cat in revenue_categories
     )
 
-
-create_custom_total_row(total_revenue, "Total Revenue", show_monthly)
-
-# COST OF SALES SECTION
-st.markdown('<div class="section-header">📦 Cost of Sales</div>', unsafe_allow_html=True)
-st.info("📝 Cost of Sales will be populated from Gross Profit dashboard")
-
-# Updated cost of sales categories to match revenue
-cost_of_sales_categories = ["Subscription", "Transactional", "Implementation", "Maintenance"]
-create_custom_table_with_years(cost_of_sales_categories, "cogs", show_monthly)
-
 # Calculate total cost of sales
 total_cost_of_sales = {}
 for month in months:
@@ -852,12 +1792,6 @@ for month in months:
         st.session_state.model_data.get("cogs", {}).get(cat, {}).get(month, 0) 
         for cat in cost_of_sales_categories
     )
-
-
-create_custom_total_row(total_cost_of_sales, "Total Cost of Sales", show_monthly)
-
-# GROSS PROFIT SECTION
-st.markdown('<div class="section-header">📈 Gross Profit</div>', unsafe_allow_html=True)
 
 # Calculate gross profit data (Revenue - COGS)
 gross_profit_data = {}
@@ -868,21 +1802,40 @@ for category in ["Subscription", "Transactional", "Implementation", "Maintenance
         cost = st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0)
         gross_profit_data[category][month] = revenue - cost
 
-# Store gross profit data in session state for the custom table function
+# Store gross profit data in session state
 st.session_state.model_data["gross_profit"] = gross_profit_data
-
-create_custom_table_with_years(["Subscription", "Transactional", "Implementation", "Maintenance"], "gross_profit", show_monthly)
 
 # Calculate total gross profit
 total_gross_profit = {}
 for month in months:
     total_gross_profit[month] = total_revenue[month] - total_cost_of_sales[month]
 
+# Get SG&A categories
+if ("liquidity_data" in st.session_state.model_data and 
+    "category_order" in st.session_state.model_data["liquidity_data"]):
+    sga_categories = st.session_state.model_data["liquidity_data"]["category_order"]
+else:
+    sga_categories = [
+        "Payroll", "Contractors", "License Fees", "Travel", "Shows", "Associations",
+        "Marketing", "Company Vehicle", "Grant Writer", "Insurance", "Legal / Professional Fees",
+        "Permitting/Fees/Licensing", "Shared Services", "Consultants/Audit/Tax", "Pritchard AMEX", "Contingencies"
+    ]
 
-create_custom_total_row(total_gross_profit, "Total Gross Profit", show_monthly)
+# Calculate total SG&A expenses
+total_sga = {}
+for month in months:
+    total_sga[month] = sum(
+        st.session_state.model_data.get("sga_expenses", {}).get(cat, {}).get(month, 0) 
+        for cat in sga_categories
+    )
+
+# Calculate net income
+net_income = {}
+for month in months:
+    net_income[month] = total_gross_profit[month] - total_sga[month]
 
 # Toggle for gross margin display
-show_gross_margin = st.checkbox("Show Gross Margin %", value=False, help="Toggle to show/hide gross margin percentage tables")
+show_gross_margin = st.checkbox("Show Gross Margin %", value=False, help="Toggle to show/hide gross margin percentage in the income statement")
 
 if show_gross_margin:
     # Calculate gross margin data
@@ -894,72 +1847,12 @@ if show_gross_margin:
             cost = st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0)
             gross_profit = revenue - cost
             gross_margin_data[category][month] = (gross_profit / revenue * 100) if revenue > 0 else 0
-
-    # Store gross margin data in session state for the custom table function
+    
+    # Store gross margin data in session state
     st.session_state.model_data["gross_margin"] = gross_margin_data
 
-
-    create_custom_table_with_years(["Subscription", "Transactional", "Implementation", "Maintenance"], "gross_margin", show_monthly)
-
-    # Calculate total gross margin
-    total_gross_margin = {}
-    for month in months:
-        total_gross_margin[month] = (total_gross_profit[month] / total_revenue[month] * 100) if total_revenue[month] > 0 else 0
-
-
-    create_custom_total_row_with_yearly_percentage(total_gross_margin, total_gross_profit, total_revenue, "Total Gross Margin %", show_monthly)
-
-# SELLING, GENERAL AND ADMINISTRATIVE EXPENSES
-st.markdown('<div class="section-header">🏢 Selling, General and Administrative Expenses</div>', unsafe_allow_html=True)
-st.info("📝 SG&A Expenses will be populated from Liquidity Forecast dashboard")
-
-# Get SG&A categories from liquidity model order (if available)
-if ("liquidity_data" in st.session_state.model_data and 
-    "category_order" in st.session_state.model_data["liquidity_data"]):
-    sga_categories = st.session_state.model_data["liquidity_data"]["category_order"]
-else:
-    # Fallback to default order if liquidity data not available
-    sga_categories = [
-        "Payroll",
-        "Contractors",
-        "License Fees",
-        "Travel",
-        "Shows",
-        "Associations",
-        "Marketing",
-        "Company Vehicle",
-        "Grant Writer",
-        "Insurance",
-        "Legal / Professional Fees",
-        "Permitting/Fees/Licensing",
-        "Shared Services",
-        "Consultants/Audit/Tax",
-        "Pritchard AMEX",
-        "Contingencies"
-    ]
-
-create_custom_table_with_years(sga_categories, "sga_expenses", show_monthly)
-
-# Calculate total SG&A expenses
-total_sga = {}
-for month in months:
-    total_sga[month] = sum(
-        st.session_state.model_data.get("sga_expenses", {}).get(cat, {}).get(month, 0) 
-        for cat in sga_categories
-    )
-
-
-create_custom_total_row(total_sga, "Total SG&A Expenses", show_monthly)
-
-# NET INCOME
-st.markdown('<div class="section-header">💵 Net Income</div>', unsafe_allow_html=True)
-
-# Calculate net income
-net_income = {}
-for month in months:
-    net_income[month] = total_gross_profit[month] - total_sga[month]
-
-create_custom_total_row(net_income, "Net Income", show_monthly)
+# Create the comprehensive income statement table
+create_comprehensive_income_statement(show_monthly, show_gross_margin)
 
 # Summary metrics with SHAED styling
 st.markdown("---")
@@ -1323,7 +2216,93 @@ with col3:
                     sga_df.index.name = 'Month'
                     sga_df.to_excel(writer, sheet_name='SGA Expenses')
             
-            # Export Income Statement Summary
+            # Export Comprehensive Income Statement (matches the unified table structure)
+            comprehensive_data = []
+            
+            # Add section headers and data for each category
+            # Revenue Section
+            comprehensive_data.append({'Category': 'REVENUE', 'Type': 'Section Header'})
+            for category in revenue_categories:
+                row = {'Category': f'  {category}', 'Type': 'Revenue'}
+                for month in months:
+                    value = st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0)
+                    row[month] = value
+                comprehensive_data.append(row)
+            
+            # Total Revenue
+            total_revenue_row = {'Category': 'Total Revenue', 'Type': 'Total'}
+            for month in months:
+                total_revenue_row[month] = sum(st.session_state.model_data.get("revenue", {}).get(cat, {}).get(month, 0) for cat in revenue_categories)
+            comprehensive_data.append(total_revenue_row)
+            
+            # Cost of Sales Section  
+            comprehensive_data.append({'Category': 'COST OF SALES', 'Type': 'Section Header'})
+            for category in cost_of_sales_categories:
+                row = {'Category': f'  {category}', 'Type': 'Cost of Sales'}
+                for month in months:
+                    value = st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0)
+                    row[month] = value
+                comprehensive_data.append(row)
+            
+            # Total Cost of Sales
+            total_cogs_row = {'Category': 'Total Cost of Sales', 'Type': 'Total'}
+            for month in months:
+                total_cogs_row[month] = sum(st.session_state.model_data.get("cogs", {}).get(cat, {}).get(month, 0) for cat in cost_of_sales_categories)
+            comprehensive_data.append(total_cogs_row)
+            
+            # Gross Profit Section
+            comprehensive_data.append({'Category': 'GROSS PROFIT', 'Type': 'Section Header'})
+            for category in revenue_categories:  # Same categories as revenue
+                row = {'Category': f'  {category}', 'Type': 'Gross Profit'}
+                for month in months:
+                    revenue = st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0)
+                    cogs = st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0)
+                    row[month] = revenue - cogs
+                comprehensive_data.append(row)
+            
+            # Total Gross Profit
+            total_gross_profit_row = {'Category': 'Total Gross Profit', 'Type': 'Total'}
+            for month in months:
+                revenue = sum(st.session_state.model_data.get("revenue", {}).get(cat, {}).get(month, 0) for cat in revenue_categories)
+                cogs = sum(st.session_state.model_data.get("cogs", {}).get(cat, {}).get(month, 0) for cat in cost_of_sales_categories)
+                total_gross_profit_row[month] = revenue - cogs
+            comprehensive_data.append(total_gross_profit_row)
+            
+            # SG&A Expenses Section
+            comprehensive_data.append({'Category': 'SG&A EXPENSES', 'Type': 'Section Header'})
+            for category in sga_categories:
+                row = {'Category': f'  {category}', 'Type': 'SG&A'}
+                for month in months:
+                    value = st.session_state.model_data.get("sga_expenses", {}).get(category, {}).get(month, 0)
+                    row[month] = value
+                comprehensive_data.append(row)
+            
+            # Total SG&A
+            total_sga_row = {'Category': 'Total SG&A Expenses', 'Type': 'Total'}
+            for month in months:
+                total_sga_row[month] = sum(st.session_state.model_data.get("sga_expenses", {}).get(cat, {}).get(month, 0) for cat in sga_categories)
+            comprehensive_data.append(total_sga_row)
+            
+            # Net Income
+            net_income_row = {'Category': 'Net Income', 'Type': 'Total'}
+            for month in months:
+                revenue = sum(st.session_state.model_data.get("revenue", {}).get(cat, {}).get(month, 0) for cat in revenue_categories)
+                cogs = sum(st.session_state.model_data.get("cogs", {}).get(cat, {}).get(month, 0) for cat in cost_of_sales_categories)
+                sga = sum(st.session_state.model_data.get("sga_expenses", {}).get(cat, {}).get(month, 0) for cat in sga_categories)
+                net_income_row[month] = revenue - cogs - sga
+            comprehensive_data.append(net_income_row)
+            
+            # Create comprehensive DataFrame
+            if comprehensive_data:
+                comprehensive_df = pd.DataFrame(comprehensive_data)
+                # Move Category and Type columns to front, then months in chronological order
+                month_cols = [col for col in comprehensive_df.columns if col not in ['Category', 'Type']]
+                month_cols.sort(key=lambda x: months.index(x) if x in months else 999)
+                column_order = ['Category', 'Type'] + month_cols
+                comprehensive_df = comprehensive_df[column_order]
+                comprehensive_df.to_excel(writer, sheet_name='Comprehensive Income Statement', index=False)
+            
+            # Export Traditional Income Statement Summary (totals only)
             summary_data = []
             for month in months:
                 revenue = sum(st.session_state.model_data.get("revenue", {}).get(cat, {}).get(month, 0) for cat in revenue_categories)
@@ -1347,8 +2326,130 @@ with col3:
                 summary_df = pd.DataFrame(summary_data)
                 summary_df.to_excel(writer, sheet_name='Income Statement Summary', index=False)
             
-            # Export Yearly Summary
+            # Export Comprehensive Yearly Summary
             years_dict = group_months_by_year(months)
+            yearly_comprehensive_data = []
+            
+            # Add section headers and data for each category by year
+            # Revenue Section
+            yearly_comprehensive_data.append({'Category': 'REVENUE', 'Type': 'Section Header'})
+            for category in revenue_categories:
+                row = {'Category': f'  {category}', 'Type': 'Revenue'}
+                for year in sorted(years_dict.keys()):
+                    year_months = years_dict[year]
+                    year_total = sum(st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0) for month in year_months)
+                    row[f'{year} Total'] = year_total
+                yearly_comprehensive_data.append(row)
+            
+            # Total Revenue by year
+            total_revenue_yearly = {'Category': 'Total Revenue', 'Type': 'Total'}
+            for year in sorted(years_dict.keys()):
+                year_months = years_dict[year]
+                year_total = sum(
+                    sum(st.session_state.model_data.get("revenue", {}).get(cat, {}).get(month, 0) for cat in revenue_categories)
+                    for month in year_months
+                )
+                total_revenue_yearly[f'{year} Total'] = year_total
+            yearly_comprehensive_data.append(total_revenue_yearly)
+            
+            # Cost of Sales Section
+            yearly_comprehensive_data.append({'Category': 'COST OF SALES', 'Type': 'Section Header'})
+            for category in cost_of_sales_categories:
+                row = {'Category': f'  {category}', 'Type': 'Cost of Sales'}
+                for year in sorted(years_dict.keys()):
+                    year_months = years_dict[year]
+                    year_total = sum(st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0) for month in year_months)
+                    row[f'{year} Total'] = year_total
+                yearly_comprehensive_data.append(row)
+            
+            # Total Cost of Sales by year
+            total_cogs_yearly = {'Category': 'Total Cost of Sales', 'Type': 'Total'}
+            for year in sorted(years_dict.keys()):
+                year_months = years_dict[year]
+                year_total = sum(
+                    sum(st.session_state.model_data.get("cogs", {}).get(cat, {}).get(month, 0) for cat in cost_of_sales_categories)
+                    for month in year_months
+                )
+                total_cogs_yearly[f'{year} Total'] = year_total
+            yearly_comprehensive_data.append(total_cogs_yearly)
+            
+            # Gross Profit Section
+            yearly_comprehensive_data.append({'Category': 'GROSS PROFIT', 'Type': 'Section Header'})
+            for category in revenue_categories:
+                row = {'Category': f'  {category}', 'Type': 'Gross Profit'}
+                for year in sorted(years_dict.keys()):
+                    year_months = years_dict[year]
+                    year_revenue = sum(st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0) for month in year_months)
+                    year_cogs = sum(st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0) for month in year_months)
+                    row[f'{year} Total'] = year_revenue - year_cogs
+                yearly_comprehensive_data.append(row)
+            
+            # Total Gross Profit by year
+            total_gross_profit_yearly = {'Category': 'Total Gross Profit', 'Type': 'Total'}
+            for year in sorted(years_dict.keys()):
+                year_months = years_dict[year]
+                year_revenue = sum(
+                    sum(st.session_state.model_data.get("revenue", {}).get(cat, {}).get(month, 0) for cat in revenue_categories)
+                    for month in year_months
+                )
+                year_cogs = sum(
+                    sum(st.session_state.model_data.get("cogs", {}).get(cat, {}).get(month, 0) for cat in cost_of_sales_categories)
+                    for month in year_months
+                )
+                total_gross_profit_yearly[f'{year} Total'] = year_revenue - year_cogs
+            yearly_comprehensive_data.append(total_gross_profit_yearly)
+            
+            # SG&A Expenses Section
+            yearly_comprehensive_data.append({'Category': 'SG&A EXPENSES', 'Type': 'Section Header'})
+            for category in sga_categories:
+                row = {'Category': f'  {category}', 'Type': 'SG&A'}
+                for year in sorted(years_dict.keys()):
+                    year_months = years_dict[year]
+                    year_total = sum(st.session_state.model_data.get("sga_expenses", {}).get(category, {}).get(month, 0) for month in year_months)
+                    row[f'{year} Total'] = year_total
+                yearly_comprehensive_data.append(row)
+            
+            # Total SG&A by year
+            total_sga_yearly = {'Category': 'Total SG&A Expenses', 'Type': 'Total'}
+            for year in sorted(years_dict.keys()):
+                year_months = years_dict[year]
+                year_total = sum(
+                    sum(st.session_state.model_data.get("sga_expenses", {}).get(cat, {}).get(month, 0) for cat in sga_categories)
+                    for month in year_months
+                )
+                total_sga_yearly[f'{year} Total'] = year_total
+            yearly_comprehensive_data.append(total_sga_yearly)
+            
+            # Net Income by year
+            net_income_yearly = {'Category': 'Net Income', 'Type': 'Total'}
+            for year in sorted(years_dict.keys()):
+                year_months = years_dict[year]
+                year_revenue = sum(
+                    sum(st.session_state.model_data.get("revenue", {}).get(cat, {}).get(month, 0) for cat in revenue_categories)
+                    for month in year_months
+                )
+                year_cogs = sum(
+                    sum(st.session_state.model_data.get("cogs", {}).get(cat, {}).get(month, 0) for cat in cost_of_sales_categories)
+                    for month in year_months
+                )
+                year_sga = sum(
+                    sum(st.session_state.model_data.get("sga_expenses", {}).get(cat, {}).get(month, 0) for cat in sga_categories)
+                    for month in year_months
+                )
+                net_income_yearly[f'{year} Total'] = year_revenue - year_cogs - year_sga
+            yearly_comprehensive_data.append(net_income_yearly)
+            
+            # Create comprehensive yearly DataFrame
+            if yearly_comprehensive_data:
+                yearly_comprehensive_df = pd.DataFrame(yearly_comprehensive_data)
+                # Order columns: Category, Type, then years in chronological order
+                year_cols = [col for col in yearly_comprehensive_df.columns if col not in ['Category', 'Type']]
+                year_cols.sort()
+                column_order = ['Category', 'Type'] + year_cols
+                yearly_comprehensive_df = yearly_comprehensive_df[column_order]
+                yearly_comprehensive_df.to_excel(writer, sheet_name='Comprehensive Yearly Summary', index=False)
+            
+            # Export Traditional Yearly Summary (totals only)
             yearly_summary = []
             for year in sorted(years_dict.keys()):
                 year_months = years_dict[year]

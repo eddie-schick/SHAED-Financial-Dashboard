@@ -1104,7 +1104,7 @@ def create_expense_table_with_years(categories, show_monthly=True):
     
     df = pd.DataFrame(table_data)
     
-    # Create column config with 90px sizing (matching revenue_assumptions.py)
+    # Create column config exactly matching cash receipts table configuration
     if show_monthly:
         column_config = {
             "Expense Category": st.column_config.TextColumn("Expense Category", disabled=True, width="medium", pinned=True),
@@ -1112,14 +1112,14 @@ def create_expense_table_with_years(categories, show_monthly=True):
         }
         for col in columns[1:-1]:  # Skip first and last columns
             if "Total" in col:
-                column_config[col] = st.column_config.TextColumn(col, width=90, disabled=True)
+                column_config[col] = st.column_config.TextColumn(col, disabled=True)
             else:
-                column_config[col] = st.column_config.NumberColumn(col, width=90, format="%.0f")
+                column_config[col] = st.column_config.NumberColumn(col, format="%.0f")
     else:
         column_config = {
             "Expense Category": st.column_config.TextColumn("Expense Category", disabled=True, width="medium", pinned=True),
             "Classification": st.column_config.TextColumn("Classification", disabled=True, width="medium"),
-            **{col: st.column_config.TextColumn(col, width=70, disabled=True) for col in columns[1:-1]}
+            **{col: st.column_config.TextColumn(col, disabled=True) for col in columns[1:-1]}
         }
     
     # Display editable table
@@ -1150,6 +1150,107 @@ def create_expense_table_with_years(categories, show_monthly=True):
                         st.session_state.model_data["liquidity_data"]["expenses"][category][month] = abs(float(value)) if value != 0 else 0
     
     return edited_df
+
+# Function to calculate departmental breakdown for charts
+def calculate_departmental_breakdown():
+    """Calculate spending by department using payroll/contractor departmental data and expense classifications"""
+    
+    # Initialize department totals
+    department_totals = {
+        "Product Development": {month: 0 for month in months},
+        "Sales and Marketing": {month: 0 for month in months},
+        "Operations": {month: 0 for month in months}  # Renamed from "Opex" for display
+    }
+    
+    # Get payroll and contractor costs by department from headcount data
+    if "payroll_data" in st.session_state.model_data:
+        # Get departmental payroll breakdown
+        payroll_by_dept, _ = get_calculated_payroll_from_headcount()
+        
+        # Get departmental contractor breakdown
+        if "payroll_data" in st.session_state.model_data:
+            payroll_data = st.session_state.model_data["payroll_data"]
+            contractors = payroll_data.get("contractors", {})
+            
+            contractor_costs_by_dept = {
+                "Product Development": {month: 0 for month in months},
+                "Sales and Marketing": {month: 0 for month in months},
+                "Opex": {month: 0 for month in months}
+            }
+            
+            for contractor_data in contractors.values():
+                resources = contractor_data.get("resources", 0)
+                hourly_rate = contractor_data.get("hourly_rate", 0)
+                department = contractor_data.get("department", "Product Development")
+                monthly_cost = resources * hourly_rate * 40 * 4
+                
+                for month in months:
+                    if is_contractor_active_for_month(contractor_data, month):
+                        contractor_costs_by_dept[department][month] += monthly_cost
+        else:
+            contractor_costs_by_dept = {
+                "Product Development": {month: 0 for month in months},
+                "Sales and Marketing": {month: 0 for month in months},
+                "Opex": {month: 0 for month in months}
+            }
+        
+        # Add payroll and contractor costs to department totals
+        for month in months:
+            department_totals["Product Development"][month] += (
+                payroll_by_dept["Product Development"].get(month, 0) + 
+                contractor_costs_by_dept["Product Development"].get(month, 0)
+            )
+            department_totals["Sales and Marketing"][month] += (
+                payroll_by_dept["Sales and Marketing"].get(month, 0) + 
+                contractor_costs_by_dept["Sales and Marketing"].get(month, 0)
+            )
+            department_totals["Operations"][month] += (
+                payroll_by_dept["Opex"].get(month, 0) + 
+                contractor_costs_by_dept["Opex"].get(month, 0)
+            )
+    
+    # Add other expense categories based on their classification
+    expense_categories = st.session_state.model_data["liquidity_data"].get("expense_categories", {})
+    expenses = st.session_state.model_data["liquidity_data"].get("expenses", {})
+    
+    # Classification to department mapping
+    classification_to_dept = {
+        "Product Development": "Product Development",
+        "Sales and Marketing": "Sales and Marketing", 
+        "Opex": "Operations"
+    }
+    
+    for category, category_info in expense_categories.items():
+        # Skip Payroll and Contractors as they're already handled above
+        if category in ["Payroll", "Contractors"]:
+            continue
+            
+        classification = category_info.get("classification", "Operations")
+        department = classification_to_dept.get(classification, "Operations")
+        
+        if category in expenses:
+            for month in months:
+                expense_amount = expenses[category].get(month, 0)
+                department_totals[department][month] += expense_amount
+    
+    return department_totals
+
+def calculate_departmental_percentages(department_totals):
+    """Calculate percentage breakdown by department for each month"""
+    department_percentages = {
+        "Product Development": {month: 0 for month in months},
+        "Sales and Marketing": {month: 0 for month in months},
+        "Operations": {month: 0 for month in months}
+    }
+    
+    for month in months:
+        total_spend = sum(dept_data[month] for dept_data in department_totals.values())
+        
+        if total_spend > 0:
+            for dept in department_percentages:
+                department_percentages[dept][month] = (department_totals[dept][month] / total_spend) * 100
+    
+    return department_percentages
 
 # Function to calculate and update SG&A expenses in main model
 def update_sga_expenses():
@@ -1307,6 +1408,99 @@ def create_summary_table_with_years(data_dict, row_label, show_monthly=True, is_
     
     st.markdown(html_content, unsafe_allow_html=True)
 
+# Function to create combined cash flow summary table
+def create_combined_cash_flow_summary(data_list, show_monthly=True):
+    """Create combined cash flow summary table with multiple rows"""
+    years_dict = group_months_by_year(months)
+    
+    if show_monthly:
+        data_columns = []
+        for year in sorted(years_dict.keys()):
+            data_columns.extend(years_dict[year])
+            data_columns.append(f"{year} Total")
+    else:
+        data_columns = [f"{year} Total" for year in sorted(years_dict.keys())]
+    
+    # Build HTML table
+    html_content = '<div class="fixed-table-container">'
+    
+    # Fixed category column
+    html_content += '<div class="fixed-category-column">'
+    html_content += '<div class="category-header">Category</div>'
+    for data_config in data_list:
+        html_content += f'<div class="category-cell">{data_config["label"]}</div>'
+    html_content += '</div>'
+    
+    # Scrollable data area
+    html_content += '<div class="scrollable-data">'
+    html_content += '<table class="data-table"><colgroup>'
+    
+    # Define column groups for consistent width
+    for col in data_columns:
+        if "Total" in col:
+            html_content += '<col style="width: 100px;">'
+        else:
+            html_content += '<col style="width: 80px;">'
+    
+    html_content += '</colgroup>'
+    
+    # Header row
+    html_content += '<thead><tr style="height: 43px !important;">'
+    for col in data_columns:
+        css_class = "data-header year-total" if "Total" in col else "data-header"
+        html_content += f'<th class="{css_class}" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important; text-align: center !important;">{col}</th>'
+    html_content += '</tr></thead>'
+    
+    # Data rows
+    html_content += '<tbody>'
+    for data_config in data_list:
+        html_content += '<tr style="height: 43px !important;">'
+        
+        data_dict = data_config["data"]
+        is_balance = data_config.get("is_balance", False)
+        use_color = data_config.get("use_color", False)
+        
+        if show_monthly:
+            for year in sorted(years_dict.keys()):
+                yearly_total = 0
+                for month in years_dict[year]:
+                    value = data_dict.get(month, 0)
+                    formatted_value = format_number_with_color(value) if use_color else format_number(value)
+                    html_content += f'<td class="data-cell" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;">{formatted_value}</td>'
+                    yearly_total += value
+                
+                if is_balance:
+                    # For balance, show end-of-year value
+                    last_month = years_dict[year][-1]
+                    eoy_value = data_dict.get(last_month, 0)
+                    formatted_eoy = format_number_with_color(eoy_value) if use_color else format_number(eoy_value)
+                    html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{formatted_eoy}</strong></td>'
+                else:
+                    # For flows, show total
+                    formatted_total = format_number_with_color(yearly_total) if use_color else format_number(yearly_total)
+                    html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{formatted_total}</strong></td>'
+        else:
+            for year in sorted(years_dict.keys()):
+                if is_balance:
+                    # For balance, show end-of-year value
+                    last_month = years_dict[year][-1]
+                    eoy_value = data_dict.get(last_month, 0)
+                    formatted_eoy = format_number_with_color(eoy_value) if use_color else format_number(eoy_value)
+                    html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{formatted_eoy}</strong></td>'
+                else:
+                    # For flows, show total
+                    yearly_total = sum(data_dict.get(month, 0) for month in years_dict[year])
+                    formatted_total = format_number_with_color(yearly_total) if use_color else format_number(yearly_total)
+                    html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{formatted_total}</strong></td>'
+        
+        html_content += '</tr>'
+    
+    html_content += '</tbody></table>'
+    html_content += '</div>'
+    html_content += '</div>'
+    
+    st.markdown(html_content, unsafe_allow_html=True)
+
 # Header with SHAED branding
 st.markdown("""
 <div class="main-header">
@@ -1385,9 +1579,15 @@ with view_col1:
         key="view_mode_liquidity"
     )
 
-with view_col2:
-    balance_col1, balance_col2 = st.columns([0.69, 2.31])
-    
+show_monthly = view_mode == "Monthly + Yearly"
+
+# LIQUIDITY ASSUMPTIONS SECTION
+st.markdown('<div class="section-header">💡 Liquidity Assumptions</div>', unsafe_allow_html=True)
+
+# CASH RECEIPTS SECTION - COLLAPSIBLE
+with st.expander("💵 Cash Receipts", expanded=False):
+    # Starting Cash Balance input
+    balance_col1, balance_col2 = st.columns([0.75, 3.25])
     with balance_col1:
         starting_balance = st.number_input(
             "Starting Cash Balance (12/31/24):",
@@ -1398,281 +1598,279 @@ with view_col2:
         )
         st.session_state.model_data["liquidity_data"]["starting_balance"] = starting_balance
 
+    st.info("✅ Revenue automatically syncs with revenue from the Income Statement when page loads")
 
+    # Create editable table for revenue, investment, and other cash receipts
+    cash_categories = ["Revenue", "Investment", "Other"]
+    cash_data_keys = ["revenue", "investment", "other_cash_receipts"]
 
-show_monthly = view_mode == "Monthly + Yearly"
+    years_dict = group_months_by_year(months)
 
-# CASH RECEIPTS SECTION
-st.markdown('<div class="section-header">💵 Cash Receipts</div>', unsafe_allow_html=True)
-st.info("✅ Revenue automatically syncs with revenue from the Income Statement when page loads")
-
-# Create editable table for revenue, investment, and other cash receipts
-cash_categories = ["Revenue", "Investment", "Other"]
-cash_data_keys = ["revenue", "investment", "other_cash_receipts"]
-
-years_dict = group_months_by_year(months)
-
-if show_monthly:
-    columns = ["Cash Flow Item"]
-    for year in sorted(years_dict.keys()):
-        columns.extend(years_dict[year])
-        columns.append(f"{year} Total")
-else:
-    columns = ["Cash Flow Item"] + [f"{year} Total" for year in sorted(years_dict.keys())]
-
-# Create cash flow table data
-cash_table_data = []
-for i, category in enumerate(cash_categories):
-    data_key = cash_data_keys[i]
-    row = {"Cash Flow Item": category}
-    
     if show_monthly:
+        columns = ["Cash Flow Item"]
         for year in sorted(years_dict.keys()):
-            yearly_total = 0
-            for month in years_dict[year]:
-                value = st.session_state.model_data["liquidity_data"][data_key].get(month, 0)
-                row[month] = value
-                yearly_total += value
-            row[f"{year} Total"] = f"**{format_number(yearly_total)}**"
+            columns.extend(years_dict[year])
+            columns.append(f"{year} Total")
+        columns.append("Type")  # Add dummy column to match disbursements structure
     else:
-        for year in sorted(years_dict.keys()):
-            yearly_total = sum(
-                st.session_state.model_data["liquidity_data"][data_key].get(month, 0)
-                for month in years_dict[year]
-            )
-            row[f"{year} Total"] = f"**{format_number(yearly_total)}**"
-    
-    cash_table_data.append(row)
+        columns = ["Cash Flow Item"] + [f"{year} Total" for year in sorted(years_dict.keys())] + ["Type"]
 
-cash_df = pd.DataFrame(cash_table_data)
-
-# Create column config for cash flow with 90px sizing (matching revenue_assumptions.py)
-if show_monthly:
-    cash_column_config = {
-        "Cash Flow Item": st.column_config.TextColumn("Cash Flow Item", disabled=True, width="medium", pinned=True),
-    }
-    for col in columns[1:]:
-        if "Total" in col:
-            cash_column_config[col] = st.column_config.TextColumn(col, width=90, disabled=True)
+    # Create cash flow table data
+    cash_table_data = []
+    for i, category in enumerate(cash_categories):
+        data_key = cash_data_keys[i]
+        row = {"Cash Flow Item": category}
+        
+        if show_monthly:
+            for year in sorted(years_dict.keys()):
+                yearly_total = 0
+                for month in years_dict[year]:
+                    value = st.session_state.model_data["liquidity_data"][data_key].get(month, 0)
+                    row[month] = value
+                    yearly_total += value
+                row[f"{year} Total"] = f"**{format_number(yearly_total)}**"
         else:
-            cash_column_config[col] = st.column_config.NumberColumn(col, width=90, format="%.0f")
-else:
-    cash_column_config = {
-        "Cash Flow Item": st.column_config.TextColumn("Cash Flow Item", disabled=True, width="medium", pinned=True),
-        **{col: st.column_config.TextColumn(col, width=70, disabled=True) for col in columns[1:]}
-    }
+            for year in sorted(years_dict.keys()):
+                yearly_total = sum(
+                    st.session_state.model_data["liquidity_data"][data_key].get(month, 0)
+                    for month in years_dict[year]
+                )
+                row[f"{year} Total"] = f"**{format_number(yearly_total)}**"
+        
+        # Add type column
+        row["Type"] = "Cash Inflow"
+        cash_table_data.append(row)
 
-# Display editable cash flow table
-edited_cash_df = st.data_editor(
-    cash_df,
-    use_container_width=True,
-    num_rows="fixed",
-    height=150,
-    column_config=cash_column_config,
-    hide_index=True,
-    column_order=["Cash Flow Item"] + [col for col in columns[1:]],
-    key="cash_flow_editor"
-)
+    cash_df = pd.DataFrame(cash_table_data)
 
-# Update session state with cash flow edits
-for i, data_key in enumerate(cash_data_keys):
+    # Create column config exactly matching disbursements table configuration  
     if show_monthly:
-        for year in sorted(years_dict.keys()):
-            for month in years_dict[year]:
-                if month in edited_cash_df.columns:
-                    value = edited_cash_df.iloc[i][month]
-                    st.session_state.model_data["liquidity_data"][data_key][month] = float(value) if value != '' else 0
+        cash_column_config = {
+            "Cash Flow Item": st.column_config.TextColumn("Cash Flow Item", disabled=True, width="medium", pinned=True),
+            "Type": st.column_config.TextColumn("Type", disabled=True, width="medium"),
+        }
+        for col in columns[1:-1]:  # Skip first and last columns (like disbursements)
+            if "Total" in col:
+                cash_column_config[col] = st.column_config.TextColumn(col, disabled=True)
+            else:
+                cash_column_config[col] = st.column_config.NumberColumn(col, format="%.0f")
+    else:
+        cash_column_config = {
+            "Cash Flow Item": st.column_config.TextColumn("Cash Flow Item", disabled=True, width="medium", pinned=True),
+            "Type": st.column_config.TextColumn("Type", disabled=True, width="medium"),
+            **{col: st.column_config.TextColumn(col, disabled=True) for col in columns[1:-1]}
+        }
 
-# EXPENSES SECTION
-st.markdown('<div class="section-header">💸 Cash Disbursements</div>', unsafe_allow_html=True)
-
-# Expense Management Dropdown
-mgmt_col1, mgmt_col2, mgmt_col3, mgmt_col4 = st.columns([0.75, 1.083, 1.083, 1.083])
-
-with mgmt_col1:
-    management_action = st.selectbox(
-        "Expense Management:",
-        ["Add New Expense Category", "Delete Expense Category", "Reorder Expense Categories"],
-        key="expense_management_action"
+    # Display editable cash flow table
+    edited_cash_df = st.data_editor(
+        cash_df,
+        use_container_width=True,
+        num_rows="fixed",
+        height=150,
+        column_config=cash_column_config,
+        hide_index=True,
+        column_order=["Cash Flow Item"] + [col for col in columns[1:]],
+        key="cash_flow_editor"
     )
 
-# Display relevant section based on selection
-if management_action == "Add New Expense Category":
-    exp_col1, exp_col2, exp_col3, exp_col4 = st.columns([0.75, 0.75, 1.25, 1.25])
+    # Update session state with cash flow edits
+    for i, data_key in enumerate(cash_data_keys):
+        if show_monthly:
+            for year in sorted(years_dict.keys()):
+                for month in years_dict[year]:
+                    if month in edited_cash_df.columns:
+                        value = edited_cash_df.iloc[i][month]
+                        st.session_state.model_data["liquidity_data"][data_key][month] = float(value) if value != '' else 0
 
-    with exp_col1:
-        new_category = st.text_input("Category Name:", key="new_category_input", placeholder="e.g., Office Supplies")
+# CASH DISBURSEMENTS SECTION - COLLAPSIBLE
+with st.expander("💸 Cash Disbursements", expanded=False):
+    # Expense Management Dropdown
+    mgmt_col1, mgmt_col2, mgmt_col3, mgmt_col4 = st.columns([0.75, 1.083, 1.083, 1.083])
 
-    with exp_col2:
-        classification = st.selectbox("Classification:", 
-                                    ["Personnel", "Product Development", "Sales and Marketing", "Opex"], 
-                                    key="new_category_classification")
+    with mgmt_col1:
+        management_action = st.selectbox(
+            "Expense Management:",
+            ["Add New Expense Category", "Delete Expense Category", "Reorder Expense Categories"],
+            key="expense_management_action"
+        )
 
-    with exp_col3:
-        st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
-        if st.button("➕ Add Category", type="primary"):
-            if not new_category or new_category.strip() == "":
-                st.error("Please enter a category name!")
-            elif new_category in st.session_state.model_data["liquidity_data"]["expense_categories"]:
-                st.error(f"Category '{new_category}' already exists!")
-            else:
-                # Add new category
-                st.session_state.model_data["liquidity_data"]["expense_categories"][new_category] = {
-                    "classification": classification, 
-                    "editable": True
-                }
-                # Initialize data for new category
-                st.session_state.model_data["liquidity_data"]["expenses"][new_category] = {month: 0 for month in months}
-                
-                # Add to category_order list so it shows up in the table
-                if "category_order" not in st.session_state.model_data["liquidity_data"]:
-                    st.session_state.model_data["liquidity_data"]["category_order"] = []
-                st.session_state.model_data["liquidity_data"]["category_order"].append(new_category)
-                
-                st.success(f"Added '{new_category}' to {classification}")
-                st.rerun()
+    # Display relevant section based on selection
+    if management_action == "Add New Expense Category":
+        exp_col1, exp_col2, exp_col3, exp_col4 = st.columns([0.75, 0.75, 1.25, 1.25])
 
-elif management_action == "Delete Expense Category":
-    delete_col1, delete_col2, delete_col3, delete_col4 = st.columns([0.75, 1.083, 1.083, 1.083])
+        with exp_col1:
+            new_category = st.text_input("Category Name:", key="new_category_input", placeholder="e.g., Office Supplies")
 
-    with delete_col1:
-        # Get editable categories only
-        editable_categories = [cat for cat, info in st.session_state.model_data["liquidity_data"]["expense_categories"].items() 
-                              if info.get("editable", True)]
-        
-        if editable_categories:
-            category_to_delete = st.selectbox("Select Category to Delete:", 
-                                            [""] + editable_categories, 
-                                            key="delete_category_select")
-        else:
-            st.info("No editable categories available to delete")
-            category_to_delete = ""
+        with exp_col2:
+            classification = st.selectbox("Classification:", 
+                                        ["Personnel", "Product Development", "Sales and Marketing", "Opex"], 
+                                        key="new_category_classification")
 
-    with delete_col2:
-        st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
-        if st.button("🗑️ Delete Category", type="secondary") and category_to_delete:
-            # Show confirmation dialog
-            if st.session_state.get("confirm_delete") != category_to_delete:
-                st.session_state.confirm_delete = category_to_delete
-                st.warning(f"⚠️ Are you sure you want to delete '{category_to_delete}'? This will remove all data for this category.")
-            else:
-                # Delete the category
-                if category_to_delete in st.session_state.model_data["liquidity_data"]["expense_categories"]:
-                    del st.session_state.model_data["liquidity_data"]["expense_categories"][category_to_delete]
-                if category_to_delete in st.session_state.model_data["liquidity_data"]["expenses"]:
-                    del st.session_state.model_data["liquidity_data"]["expenses"][category_to_delete]
-                # Remove from category_order list
-                if "category_order" in st.session_state.model_data["liquidity_data"] and category_to_delete in st.session_state.model_data["liquidity_data"]["category_order"]:
-                    st.session_state.model_data["liquidity_data"]["category_order"].remove(category_to_delete)
-                st.success(f"Deleted '{category_to_delete}' successfully!")
-                st.session_state.confirm_delete = None
-                st.rerun()
-
-    # Confirm delete button
-    if st.session_state.get("confirm_delete"):
-        confirm_col1, confirm_col2, confirm_col3, confirm_col4 = st.columns([1, 1, 1, 1])
-        with confirm_col2:
-            if st.button(f"✅ Confirm Delete '{st.session_state.confirm_delete}'", type="secondary"):
-                category_to_delete = st.session_state.confirm_delete
-                # Delete the category
-                if category_to_delete in st.session_state.model_data["liquidity_data"]["expense_categories"]:
-                    del st.session_state.model_data["liquidity_data"]["expense_categories"][category_to_delete]
-                if category_to_delete in st.session_state.model_data["liquidity_data"]["expenses"]:
-                    del st.session_state.model_data["liquidity_data"]["expenses"][category_to_delete]
-                # Remove from category_order list
-                if "category_order" in st.session_state.model_data["liquidity_data"] and category_to_delete in st.session_state.model_data["liquidity_data"]["category_order"]:
-                    st.session_state.model_data["liquidity_data"]["category_order"].remove(category_to_delete)
-                st.success(f"Deleted '{category_to_delete}' successfully!")
-                st.session_state.confirm_delete = None
-                st.rerun()
-
-elif management_action == "Reorder Expense Categories":
-    # Initialize category order if not exists
-    if "category_order" not in st.session_state.model_data["liquidity_data"]:
-        st.session_state.model_data["liquidity_data"]["category_order"] = list(st.session_state.model_data["liquidity_data"]["expense_categories"].keys())
-
-    # Get current ordered categories
-    current_order = st.session_state.model_data["liquidity_data"]["category_order"]
-
-    # Ensure all categories are in the order list (for new categories)
-    all_categories = list(st.session_state.model_data["liquidity_data"]["expense_categories"].keys())
-    for cat in all_categories:
-        if cat not in current_order:
-            current_order.append(cat)
-
-    # Remove categories that no longer exist
-    current_order = [cat for cat in current_order if cat in all_categories]
-    st.session_state.model_data["liquidity_data"]["category_order"] = current_order
-
-    # Initialize selected category in session state if not exists
-    if "selected_reorder_category" not in st.session_state:
-        st.session_state.selected_reorder_category = current_order[0] if current_order else None
-
-    # Ensure selected category is still valid
-    if st.session_state.selected_reorder_category not in current_order:
-        st.session_state.selected_reorder_category = current_order[0] if current_order else None
-
-    # Create interface with grouped buttons
-    reorder_col1, reorder_col2, reorder_col3, reorder_col4 = st.columns([0.75, 1.083, 1.083, 1.083])
-
-    with reorder_col1:
-        if current_order:
-            # Use index to maintain selection
-            try:
-                current_index = current_order.index(st.session_state.selected_reorder_category)
-            except (ValueError, AttributeError):
-                current_index = 0
-                
-            selected_index = st.selectbox(
-                "Select Category to Move:", 
-                range(len(current_order)),
-                format_func=lambda x: current_order[x],
-                index=current_index,
-                key="reorder_category_select"
-            )
-            st.session_state.selected_reorder_category = current_order[selected_index]
-        else:
-            st.info("No categories available to reorder")
-
-    with reorder_col2:
-        st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
-        # Create sub-columns for move buttons to be side by side
-        move_col1, move_col2 = st.columns([1, 1])
-        
-        with move_col1:
-            if st.button("⬆️ Move Up", type="secondary", use_container_width=True) and current_order:
-                current_index = current_order.index(st.session_state.selected_reorder_category)
-                if current_index > 0:
-                    # Swap with previous item
-                    current_order[current_index], current_order[current_index - 1] = current_order[current_index - 1], current_order[current_index]
-                    st.session_state.model_data["liquidity_data"]["category_order"] = current_order
-                    st.success(f"Moved '{st.session_state.selected_reorder_category}' up!")
-                    st.rerun()
+        with exp_col3:
+            st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
+            if st.button("➕ Add Category", type="primary"):
+                if not new_category or new_category.strip() == "":
+                    st.error("Please enter a category name!")
+                elif new_category in st.session_state.model_data["liquidity_data"]["expense_categories"]:
+                    st.error(f"Category '{new_category}' already exists!")
                 else:
-                    st.warning(f"'{st.session_state.selected_reorder_category}' is already at the top!")
-        
-        with move_col2:
-            if st.button("⬇️ Move Down", type="secondary", use_container_width=True) and current_order:
-                current_index = current_order.index(st.session_state.selected_reorder_category)
-                if current_index < len(current_order) - 1:
-                    # Swap with next item
-                    current_order[current_index], current_order[current_index + 1] = current_order[current_index + 1], current_order[current_index]
-                    st.session_state.model_data["liquidity_data"]["category_order"] = current_order
-                    st.success(f"Moved '{st.session_state.selected_reorder_category}' down!")
+                    # Add new category
+                    st.session_state.model_data["liquidity_data"]["expense_categories"][new_category] = {
+                        "classification": classification, 
+                        "editable": True
+                    }
+                    # Initialize data for new category
+                    st.session_state.model_data["liquidity_data"]["expenses"][new_category] = {month: 0 for month in months}
+                    
+                    # Add to category_order list so it shows up in the table
+                    if "category_order" not in st.session_state.model_data["liquidity_data"]:
+                        st.session_state.model_data["liquidity_data"]["category_order"] = []
+                    st.session_state.model_data["liquidity_data"]["category_order"].append(new_category)
+                    
+                    st.success(f"Added '{new_category}' to {classification}")
                     st.rerun()
+
+    elif management_action == "Delete Expense Category":
+        delete_col1, delete_col2, delete_col3, delete_col4 = st.columns([0.75, 1.083, 1.083, 1.083])
+
+        with delete_col1:
+            # Get editable categories only
+            editable_categories = [cat for cat, info in st.session_state.model_data["liquidity_data"]["expense_categories"].items() 
+                                  if info.get("editable", True)]
+            
+            if editable_categories:
+                category_to_delete = st.selectbox("Select Category to Delete:", 
+                                                [""] + editable_categories, 
+                                                key="delete_category_select")
+            else:
+                st.info("No editable categories available to delete")
+                category_to_delete = ""
+
+        with delete_col2:
+            st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
+            if st.button("🗑️ Delete Category", type="secondary") and category_to_delete:
+                # Show confirmation dialog
+                if st.session_state.get("confirm_delete") != category_to_delete:
+                    st.session_state.confirm_delete = category_to_delete
+                    st.warning(f"⚠️ Are you sure you want to delete '{category_to_delete}'? This will remove all data for this category.")
                 else:
-                    st.warning(f"'{st.session_state.selected_reorder_category}' is already at the bottom!")
+                    # Delete the category
+                    if category_to_delete in st.session_state.model_data["liquidity_data"]["expense_categories"]:
+                        del st.session_state.model_data["liquidity_data"]["expense_categories"][category_to_delete]
+                    if category_to_delete in st.session_state.model_data["liquidity_data"]["expenses"]:
+                        del st.session_state.model_data["liquidity_data"]["expenses"][category_to_delete]
+                    # Remove from category_order list
+                    if "category_order" in st.session_state.model_data["liquidity_data"] and category_to_delete in st.session_state.model_data["liquidity_data"]["category_order"]:
+                        st.session_state.model_data["liquidity_data"]["category_order"].remove(category_to_delete)
+                    st.success(f"Deleted '{category_to_delete}' successfully!")
+                    st.session_state.confirm_delete = None
+                    st.rerun()
 
-# Get current expense categories in the specified order
-expense_categories = st.session_state.model_data["liquidity_data"]["category_order"]
+        # Confirm delete button
+        if st.session_state.get("confirm_delete"):
+            confirm_col1, confirm_col2, confirm_col3, confirm_col4 = st.columns([1, 1, 1, 1])
+            with confirm_col2:
+                if st.button(f"✅ Confirm Delete '{st.session_state.confirm_delete}'", type="secondary"):
+                    category_to_delete = st.session_state.confirm_delete
+                    # Delete the category
+                    if category_to_delete in st.session_state.model_data["liquidity_data"]["expense_categories"]:
+                        del st.session_state.model_data["liquidity_data"]["expense_categories"][category_to_delete]
+                    if category_to_delete in st.session_state.model_data["liquidity_data"]["expenses"]:
+                        del st.session_state.model_data["liquidity_data"]["expenses"][category_to_delete]
+                    # Remove from category_order list
+                    if "category_order" in st.session_state.model_data["liquidity_data"] and category_to_delete in st.session_state.model_data["liquidity_data"]["category_order"]:
+                        st.session_state.model_data["liquidity_data"]["category_order"].remove(category_to_delete)
+                    st.success(f"Deleted '{category_to_delete}' successfully!")
+                    st.session_state.confirm_delete = None
+                    st.rerun()
 
-st.info("💡 Payroll & Contractors will populate from the Headcount dashboard once synched. Expense data automatically flows to SG&A section of Income Statement")
+    elif management_action == "Reorder Expense Categories":
+        # Initialize category order if not exists
+        if "category_order" not in st.session_state.model_data["liquidity_data"]:
+            st.session_state.model_data["liquidity_data"]["category_order"] = list(st.session_state.model_data["liquidity_data"]["expense_categories"].keys())
 
-# Create expense table
-if expense_categories:
-    create_expense_table_with_years(expense_categories, show_monthly)
-else:
-    st.warning("No expense categories found.")
+        # Get current ordered categories
+        current_order = st.session_state.model_data["liquidity_data"]["category_order"]
+
+        # Ensure all categories are in the order list (for new categories)
+        all_categories = list(st.session_state.model_data["liquidity_data"]["expense_categories"].keys())
+        for cat in all_categories:
+            if cat not in current_order:
+                current_order.append(cat)
+
+        # Remove categories that no longer exist
+        current_order = [cat for cat in current_order if cat in all_categories]
+        st.session_state.model_data["liquidity_data"]["category_order"] = current_order
+
+        # Initialize selected category in session state if not exists
+        if "selected_reorder_category" not in st.session_state:
+            st.session_state.selected_reorder_category = current_order[0] if current_order else None
+
+        # Ensure selected category is still valid
+        if st.session_state.selected_reorder_category not in current_order:
+            st.session_state.selected_reorder_category = current_order[0] if current_order else None
+
+        # Create interface with grouped buttons
+        reorder_col1, reorder_col2, reorder_col3, reorder_col4 = st.columns([0.75, 1.083, 1.083, 1.083])
+
+        with reorder_col1:
+            if current_order:
+                # Use index to maintain selection
+                try:
+                    current_index = current_order.index(st.session_state.selected_reorder_category)
+                except (ValueError, AttributeError):
+                    current_index = 0
+                    
+                selected_index = st.selectbox(
+                    "Select Category to Move:", 
+                    range(len(current_order)),
+                    format_func=lambda x: current_order[x],
+                    index=current_index,
+                    key="reorder_category_select"
+                )
+                st.session_state.selected_reorder_category = current_order[selected_index]
+            else:
+                st.info("No categories available to reorder")
+
+        with reorder_col2:
+            st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
+            # Create sub-columns for move buttons to be side by side
+            move_col1, move_col2 = st.columns([1, 1])
+            
+            with move_col1:
+                if st.button("⬆️ Move Up", type="secondary", use_container_width=True) and current_order:
+                    current_index = current_order.index(st.session_state.selected_reorder_category)
+                    if current_index > 0:
+                        # Swap with previous item
+                        current_order[current_index], current_order[current_index - 1] = current_order[current_index - 1], current_order[current_index]
+                        st.session_state.model_data["liquidity_data"]["category_order"] = current_order
+                        st.success(f"Moved '{st.session_state.selected_reorder_category}' up!")
+                        st.rerun()
+                    else:
+                        st.warning(f"'{st.session_state.selected_reorder_category}' is already at the top!")
+            
+            with move_col2:
+                if st.button("⬇️ Move Down", type="secondary", use_container_width=True) and current_order:
+                    current_index = current_order.index(st.session_state.selected_reorder_category)
+                    if current_index < len(current_order) - 1:
+                        # Swap with next item
+                        current_order[current_index], current_order[current_index + 1] = current_order[current_index + 1], current_order[current_index]
+                        st.session_state.model_data["liquidity_data"]["category_order"] = current_order
+                        st.success(f"Moved '{st.session_state.selected_reorder_category}' down!")
+                        st.rerun()
+                    else:
+                        st.warning(f"'{st.session_state.selected_reorder_category}' is already at the bottom!")
+
+    # Get current expense categories in the specified order
+    expense_categories = st.session_state.model_data["liquidity_data"]["category_order"]
+
+    st.info("💡 Payroll & Contractors will populate from the Headcount dashboard once synched. Expense data automatically flows to SG&A section of Income Statement")
+
+    # Create expense table
+    if expense_categories:
+        create_expense_table_with_years(expense_categories, show_monthly)
+    else:
+        st.warning("No expense categories found.")
 
 st.markdown("---")
 
@@ -1768,8 +1966,7 @@ for i, month in enumerate(months):
     else:
         total_inflows[month] = base_inflows
 
-create_summary_table_with_years(total_inflows, "Total Cash Inflows", show_monthly)
-
+# Calculate all cash flow components
 total_outflows = {}
 for i, month in enumerate(months):
     base_outflows = -sum(  # Negative because outflows
@@ -1783,14 +1980,10 @@ for i, month in enumerate(months):
     else:
         total_outflows[month] = base_outflows
 
-create_summary_table_with_years(total_outflows, "Total Cash Outflows", show_monthly)
-
 # Calculate adjusted monthly cash flow
 adjusted_monthly_cash_flow = {}
 for month in months:
     adjusted_monthly_cash_flow[month] = total_inflows[month] + total_outflows[month]  # outflows are already negative
-
-create_summary_table_with_years(adjusted_monthly_cash_flow, "Net Cash Flow", show_monthly, use_color=True)
 
 # Calculate adjusted cumulative balance
 adjusted_cumulative_balance = {}
@@ -1800,7 +1993,15 @@ for month in months:
     running_balance += adjusted_monthly_cash_flow[month]
     adjusted_cumulative_balance[month] = running_balance
 
-create_summary_table_with_years(adjusted_cumulative_balance, "Cumulative Cash Balance", show_monthly, is_balance=True, use_color=True)
+# Create combined cash flow summary table
+cash_flow_summary_data = [
+    {"label": "Total Cash Inflows", "data": total_inflows},
+    {"label": "Total Cash Outflows", "data": total_outflows},
+    {"label": "Net Cash Flow", "data": adjusted_monthly_cash_flow, "use_color": True},
+    {"label": "Cumulative Cash Balance", "data": adjusted_cumulative_balance, "is_balance": True, "use_color": True}
+]
+
+create_combined_cash_flow_summary(cash_flow_summary_data, show_monthly)
 
 st.markdown("---")
 
@@ -1906,15 +2107,23 @@ st.markdown("") # Small spacing
 chart_type_col1, chart_type_col2 = st.columns([0.75, 3.25])
 with chart_type_col1:
     # Get current index based on session state
-    chart_options = ["Total Inflows", "Total Outflows", "Net Cash Flow"]
+    chart_options = ["Total Inflows", "Total Outflows", "Net Cash Flow", "Ending Balance", "Gross Spend by Department", "% Spend by Department"]
     current_type = st.session_state.get("chart_type", "inflows")
     
     if current_type == "inflows":
         current_index = 0
     elif current_type == "outflows":
         current_index = 1
-    else:  # net
+    elif current_type == "net":
         current_index = 2
+    elif current_type == "ending_balance":
+        current_index = 3
+    elif current_type == "dept_gross":
+        current_index = 4
+    elif current_type == "dept_percent":
+        current_index = 5
+    else:
+        current_index = 0
     
     selected_chart = st.selectbox(
         "Select chart type:",
@@ -1928,14 +2137,39 @@ with chart_type_col1:
         st.session_state.chart_type = "inflows"
     elif selected_chart == "Total Outflows":
         st.session_state.chart_type = "outflows"
-    else:  # Net Cash Flow
+    elif selected_chart == "Net Cash Flow":
         st.session_state.chart_type = "net"
+    elif selected_chart == "Ending Balance":
+        st.session_state.chart_type = "ending_balance"
+    elif selected_chart == "Gross Spend by Department":
+        st.session_state.chart_type = "dept_gross"
+    elif selected_chart == "% Spend by Department":
+        st.session_state.chart_type = "dept_percent"
 
 # Get current chart type (default to inflows)
 chart_type = st.session_state.get("chart_type", "inflows")
 
-# Prepare chart data based on selected year
-if metrics_period == "All Years":
+# Calculate departmental data if needed
+if chart_type in ["dept_gross", "dept_percent"]:
+    department_totals = calculate_departmental_breakdown()
+    department_percentages = calculate_departmental_percentages(department_totals)
+
+# Prepare chart data based on selected year and chart type
+if chart_type in ["dept_gross", "dept_percent"]:
+    # Handle departmental charts differently (stacked bars)
+    chart_data = None  # Will be handled in the chart creation section
+    chart_df = None
+    if chart_type == "dept_gross":
+        chart_title = f"Gross Spend by Department"
+    else:
+        chart_title = f"% Spend by Department"
+    
+    if metrics_period != "All Years":
+        chart_title += f" - {metrics_period}"
+    else:
+        chart_title += f" (All Years)"
+        
+elif metrics_period == "All Years":
     # For All Years, show yearly totals
     chart_data = {}
     years_dict = group_months_by_year(months)
@@ -1946,8 +2180,12 @@ if metrics_period == "All Years":
             chart_data[str(year)] = sum(total_inflows.get(month, 0) for month in year_months)
         elif chart_type == "outflows":
             chart_data[str(year)] = abs(sum(total_outflows.get(month, 0) for month in year_months))
-        else:  # net
+        elif chart_type == "net":
             chart_data[str(year)] = sum(adjusted_monthly_cash_flow.get(month, 0) for month in year_months)
+        else:  # ending_balance
+            # For ending balance, show the balance at the end of the year (last month)
+            last_month_of_year = year_months[-1]
+            chart_data[str(year)] = adjusted_cumulative_balance.get(last_month_of_year, 0)
     
     # Create DataFrame for chart
     chart_df = pd.DataFrame({
@@ -1978,8 +2216,10 @@ else:
                 chart_data[month_name] = total_inflows.get(matching_month, 0)
             elif chart_type == "outflows":
                 chart_data[month_name] = abs(total_outflows.get(matching_month, 0))
-            else:  # net
+            elif chart_type == "net":
                 chart_data[month_name] = adjusted_monthly_cash_flow.get(matching_month, 0)
+            else:  # ending_balance
+                chart_data[month_name] = adjusted_cumulative_balance.get(matching_month, 0)
         else:
             chart_data[month_name] = 0
     
@@ -1991,8 +2231,145 @@ else:
     chart_title = f"{chart_type.title().replace('_', ' ')} - {metrics_period}"
 
 # Display the chart
-if not chart_df.empty:
-    # Create Plotly figure for cleaner appearance
+if chart_type in ["dept_gross", "dept_percent"]:
+    # Handle departmental charts with stacked bars
+    fig = go.Figure()
+    
+    # SHAED color palette for departments
+    colors = {
+        'Product Development': '#00D084',  # Primary SHAED green
+        'Sales and Marketing': '#00B574',  # Darker SHAED green  
+        'Operations': '#17a2b8'  # Blue for operations
+    }
+    
+    if metrics_period == "All Years":
+        # For All Years, show yearly totals by department
+        years_dict = group_months_by_year(months)
+        year_labels = []
+        dept_chart_data = {dept: [] for dept in department_totals.keys()}
+        
+        for year in sorted(years_dict.keys()):
+            year_labels.append(str(year))
+            year_months = years_dict[year]
+            
+            if chart_type == "dept_gross":
+                # Calculate yearly totals for each department
+                for dept in department_totals.keys():
+                    yearly_total = sum(department_totals[dept].get(month, 0) for month in year_months)
+                    dept_chart_data[dept].append(yearly_total)
+            else:  # dept_percent
+                # Calculate yearly percentages for each department
+                yearly_totals = {}
+                total_yearly_spend = 0
+                for dept in department_totals.keys():
+                    yearly_total = sum(department_totals[dept].get(month, 0) for month in year_months)
+                    yearly_totals[dept] = yearly_total
+                    total_yearly_spend += yearly_total
+                
+                for dept in department_percentages.keys():
+                    if total_yearly_spend > 0:
+                        dept_chart_data[dept].append((yearly_totals[dept] / total_yearly_spend) * 100)
+                    else:
+                        dept_chart_data[dept].append(0)
+        
+        x_labels = year_labels
+        
+    else:
+        # For specific year, show monthly data by department
+        year_months = [month for month in months if metrics_period in month]
+        month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+                       "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        month_labels = []
+        dept_chart_data = {dept: [] for dept in department_totals.keys()}
+        
+        for month_name in month_names:
+            matching_month = None
+            for month in year_months:
+                if month.startswith(month_name):
+                    matching_month = month
+                    break
+            
+            month_labels.append(month_name)
+            
+            if chart_type == "dept_gross":
+                for dept in department_totals.keys():
+                    if matching_month:
+                        dept_chart_data[dept].append(department_totals[dept].get(matching_month, 0))
+                    else:
+                        dept_chart_data[dept].append(0)
+            else:  # dept_percent
+                for dept in department_percentages.keys():
+                    if matching_month:
+                        dept_chart_data[dept].append(department_percentages[dept].get(matching_month, 0))
+                    else:
+                        dept_chart_data[dept].append(0)
+        
+        x_labels = month_labels
+    
+    # Add traces for each department
+    for dept in department_totals.keys():
+        if chart_type == "dept_gross":
+            hovertemplate = f'<b>{dept}</b><br>%{{x}}: $%{{y:,.0f}}<extra></extra>'
+        else:  # dept_percent
+            hovertemplate = f'<b>{dept}</b><br>%{{x}}: %{{y:.1f}}%<extra></extra>'
+            
+        fig.add_trace(go.Bar(
+            name=dept,
+            x=x_labels,
+            y=dept_chart_data[dept],
+            marker_color=colors[dept],
+            hovertemplate=hovertemplate,
+            opacity=0.8
+        ))
+    
+    # Update layout
+    if chart_type == "dept_gross":
+        yaxis_format = '$,.0f'
+        yaxis_title = 'Amount ($)'
+        yaxis_range = None
+    else:  # dept_percent
+        yaxis_format = '.0f'
+        yaxis_title = 'Percentage (%)'
+        yaxis_range = [0, 100]
+    
+    fig.update_layout(
+        title=dict(
+            text=chart_title,
+            font=dict(size=18, color='#262730')
+        ),
+        barmode='stack',
+        xaxis=dict(
+            title='',
+            showgrid=False,
+            tickangle=-45 if metrics_period != "All Years" else 0
+        ),
+        yaxis=dict(
+            title=yaxis_title,
+            showgrid=True,
+            gridcolor='rgba(128,128,128,0.2)',
+            tickformat=yaxis_format,
+            range=yaxis_range
+        ),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        hovermode='x unified',
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        font=dict(family="Arial, sans-serif", size=12),
+        height=350,
+        margin=dict(l=50, r=50, t=80, b=50)
+    )
+    
+    # Display the chart
+    st.plotly_chart(fig, use_container_width=True)
+
+elif not chart_df.empty:
+    # Handle regular single-value charts
     fig = go.Figure()
     
     # Set color based on chart type
@@ -2000,8 +2377,12 @@ if not chart_df.empty:
         color = '#00D084'  # Green for inflows
     elif chart_type == "outflows":
         color = '#dc3545'  # Red for outflows  
-    else:  # net
+    elif chart_type == "net":
         # Use conditional coloring for net cash flow
+        colors = ['#00D084' if val >= 0 else '#dc3545' for val in chart_df['Value']]
+        color = colors
+    else:  # ending_balance
+        # Use conditional coloring for ending balance
         colors = ['#00D084' if val >= 0 else '#dc3545' for val in chart_df['Value']]
         color = colors
     
@@ -2042,6 +2423,8 @@ if not chart_df.empty:
     
     # Display the chart
     st.plotly_chart(fig, use_container_width=True)
+
+
 
 st.markdown("---")
 
