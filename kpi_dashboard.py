@@ -1605,56 +1605,86 @@ elif budget_input_method == "Sync with Model":
                 skipped_count = 0
                 error_count = 0
                 
-                for month in months_to_sync:
+                # For YTD, we need to aggregate and store in the correct YTD budget key
+                if sync_scope == "Current Period Only" and budget_period == "YTD":
+                    # Handle YTD sync - aggregate actuals and store in YTD budget key
                     try:
-                        # Get or create budget for this month
-                        month_budget_key = f"{month}_budget"
-                        if month_budget_key not in st.session_state.model_data["budget_data"]["monthly_budgets"]:
-                            # Initialize with revenue categories
-                            st.session_state.model_data["budget_data"]["monthly_budgets"][month_budget_key] = {
-                                "subscription_revenue": 0,
-                                "transactional_revenue": 0,
-                                "implementation_revenue": 0,
-                                "maintenance_revenue": 0,
-                                "onboarding_revenue": 0,
-                            }
-                            
-                            # Add expense categories
-                            for category in expense_categories:
-                                category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
-                                st.session_state.model_data["budget_data"]["monthly_budgets"][month_budget_key][category_key] = 0
-                        
-                        # Get actual values from model data
-                        month_actuals = get_actual_values("MTD", month)
-                        
-                        # Check if there's actual data for this month
-                        total_actuals = sum(abs(v) for v in month_actuals.values() if isinstance(v, (int, float)))
+                        ytd_actuals = get_actual_values("YTD", months_to_sync)
+                        total_actuals = sum(abs(v) for v in ytd_actuals.values() if isinstance(v, (int, float)))
                         
                         if total_actuals > 0:
-                            # Update budget with actual values
-                            for key, value in month_actuals.items():
-                                if key in st.session_state.model_data["budget_data"]["monthly_budgets"][month_budget_key]:
-                                    st.session_state.model_data["budget_data"]["monthly_budgets"][month_budget_key][key] = value
-                            synced_count += 1
+                            # Store in the correct YTD budget key
+                            for key, value in ytd_actuals.items():
+                                if key in st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]:
+                                    st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key][key] = value
+                            synced_count = 1
                         else:
-                            skipped_count += 1
-                    
-                    except Exception as month_error:
-                        error_count += 1
-                        continue
+                            skipped_count = 1
+                    except Exception as e:
+                        error_count = 1
+                
+                else:
+                    # Handle MTD and bulk sync - store individual monthly budgets
+                    for month in months_to_sync:
+                        try:
+                            # Get or create budget for this month
+                            month_budget_key = f"{month}_budget"
+                            if month_budget_key not in st.session_state.model_data["budget_data"]["monthly_budgets"]:
+                                # Initialize with revenue categories
+                                st.session_state.model_data["budget_data"]["monthly_budgets"][month_budget_key] = {
+                                    "subscription_revenue": 0,
+                                    "transactional_revenue": 0,
+                                    "implementation_revenue": 0,
+                                    "maintenance_revenue": 0,
+                                    "onboarding_revenue": 0,
+                                }
+                                
+                                # Add expense categories
+                                for category in expense_categories:
+                                    category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
+                                    st.session_state.model_data["budget_data"]["monthly_budgets"][month_budget_key][category_key] = 0
+                            
+                            # Get actual values from model data
+                            month_actuals = get_actual_values("MTD", month)
+                            
+                            # Check if there's actual data for this month
+                            total_actuals = sum(abs(v) for v in month_actuals.values() if isinstance(v, (int, float)))
+                            
+                            if total_actuals > 0:
+                                # Update budget with actual values
+                                for key, value in month_actuals.items():
+                                    if key in st.session_state.model_data["budget_data"]["monthly_budgets"][month_budget_key]:
+                                        st.session_state.model_data["budget_data"]["monthly_budgets"][month_budget_key][key] = value
+                                synced_count += 1
+                                
+                                # If this is the current MTD period being viewed, also update the main budget key
+                                if month == budget_selected_month and budget_period == "MTD":
+                                    for key, value in month_actuals.items():
+                                        if key in st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]:
+                                            st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key][key] = value
+                            else:
+                                skipped_count += 1
+                        
+                        except Exception as month_error:
+                            error_count += 1
+                            continue
                 
                 # Save the updated budget data
                 with open(data_file, 'w') as f:
                     json.dump(st.session_state.model_data, f, indent=2)
                 
-                # Show results
+                # Show results with debug info
                 if synced_count > 0:
                     st.success(f"✅ Budget synced successfully!")
                     st.info(f"📊 Synced: {synced_count} months | Skipped: {skipped_count} months | Errors: {error_count}")
+                    st.info(f"🔧 Debug: Budget key used: `{budget_key}`")
+                    st.info(f"🔧 Debug: Months synced: {months_to_sync[:3]}{'...' if len(months_to_sync) > 3 else ''}")
                 elif skipped_count > 0:
                     st.warning(f"⚠️ No data found for {skipped_count} months in the selected scope.")
+                    st.info(f"🔧 Debug: Checked months: {months_to_sync[:3]}{'...' if len(months_to_sync) > 3 else ''}")
                 else:
                     st.error(f"❌ Sync failed. Errors: {error_count}")
+                    st.info(f"🔧 Debug: Attempted months: {months_to_sync[:3]}{'...' if len(months_to_sync) > 3 else ''}")
                 
                 st.rerun()
                 
@@ -1664,6 +1694,26 @@ elif budget_input_method == "Sync with Model":
 
     
 
+
+# Debug Info (temporary)
+with st.expander("🔧 Debug Info", expanded=False):
+    st.write(f"**Budget Key:** `{budget_key}`")
+    st.write(f"**Budget Period:** {budget_period}")
+    st.write(f"**Selected Month:** {budget_selected_month}")
+    st.write(f"**Selected Year:** {budget_selected_year}")
+    
+    if budget_key in st.session_state.model_data.get("budget_data", {}).get("monthly_budgets", {}):
+        budget_data = st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]
+        st.write(f"**Budget Data Found:** Yes")
+        st.write(f"**Sample Values:**")
+        for k, v in list(budget_data.items())[:5]:
+            st.write(f"  - {k}: ${v:,.0f}")
+    else:
+        st.write(f"**Budget Data Found:** No")
+        st.write("**Available Budget Keys:**")
+        available_keys = list(st.session_state.model_data.get("budget_data", {}).get("monthly_budgets", {}).keys())
+        for key in available_keys[:10]:
+            st.write(f"  - `{key}`")
 
 # Show current budget values and allow editing
 if budget_input_method == "Manual Entry":
