@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 
 # Configure page
 st.set_page_config(
-    page_title="SHAED Finance Dashboard - Hosting Expenses",
+    page_title="Hosting",
     page_icon="☁️",
     layout="wide"
 )
@@ -135,9 +135,66 @@ st.markdown("""
     .cost-category {
         background: #f8f9fa;
         border-left: 4px solid #00D084;
-        padding: 1rem;
-        margin: 0.5rem 0;
+        padding: 0.5rem 0.3rem;
+        margin: 0.2rem 0;
         border-radius: 5px;
+        font-size: 13px;
+        width: 100%;
+        box-sizing: border-box;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    
+    /* Green table styling */
+    .green-table-container {
+        background: white;
+        border-radius: 10px;
+        padding: 0;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        margin-bottom: 1.5rem;
+        overflow-x: auto;
+        border: 1px solid #e0e0e0;
+    }
+    
+    .green-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 0;
+    }
+    
+    .green-table th {
+        background-color: #00D084;
+        color: white;
+        padding: 12px 8px;
+        text-align: center;
+        font-weight: 600;
+        font-size: 14px;
+        border-bottom: 1px solid #00B574;
+    }
+    
+    .green-table th:first-child {
+        border-top-left-radius: 10px;
+    }
+    
+    .green-table th:last-child {
+        border-top-right-radius: 10px;
+    }
+    
+    .green-table td {
+        padding: 10px 8px;
+        text-align: center;
+        font-size: 13px;
+        border-bottom: 1px solid #e0e0e0;
+        background-color: white;
+    }
+    
+    .green-table tr:nth-child(even) td {
+        background-color: #f8f9fa;
+    }
+    
+    .green-table tr:hover td {
+        background-color: #e8f5e8;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -314,9 +371,12 @@ def calculate_total_hosting_costs():
 # Calculate capitalized vs expensed costs
 def calculate_capitalized_vs_expensed():
     """Determine which costs are capitalized vs expensed based on go-live date"""
-    hosting_data = st.session_state.model_data["hosting_costs_data"]
-    go_live_month = hosting_data["go_live_settings"]["go_live_month"]
-    capitalize_before = hosting_data["go_live_settings"]["capitalize_before_go_live"]
+    # Read go-live settings from gross profit model (primary source)
+    gross_profit_data = st.session_state.model_data.get("gross_profit_data", {})
+    hosting_structure = gross_profit_data.get("saas_hosting_structure", {})
+    
+    go_live_month = hosting_structure.get("go_live_month", "Jan 2025")
+    capitalize_before = hosting_structure.get("capitalize_before_go_live", True)
     
     monthly_costs, _ = calculate_total_hosting_costs()
     
@@ -370,12 +430,13 @@ def update_integrated_dashboards():
         for costs in category.values()
     )
     
-    # Update the gross profit model's hosting structure to match
+    # Update the gross profit model's hosting structure costs (preserve go-live settings)
+    existing_structure = st.session_state.model_data["gross_profit_data"].get("saas_hosting_structure", {})
     st.session_state.model_data["gross_profit_data"]["saas_hosting_structure"] = {
         "fixed_monthly_cost": total_fixed_per_month,
         "cost_per_customer": total_variable_per_customer,
-        "go_live_month": go_live_settings.get("go_live_month", "Jan 2025"),
-        "capitalize_before_go_live": go_live_settings.get("capitalize_before_go_live", True),
+        "go_live_month": existing_structure.get("go_live_month", "Jan 2025"),  # Preserve existing setting
+        "capitalize_before_go_live": existing_structure.get("capitalize_before_go_live", True),  # Preserve existing setting
         "source": "hosting_costs_model",  # Mark as sourced from detailed model
         "last_updated": str(datetime.now())
     }
@@ -400,14 +461,12 @@ def update_integrated_dashboards():
 # Create cost structure table
 def create_cost_structure_table(show_monthly=True):
     """Create editable table for hosting cost structure"""
-    st.markdown("**☁️ Infrastructure Cost Components**")
-    st.info("💡 Set fixed monthly costs and variable costs per customer for each service. You can add, edit, or delete services as needed.")
+    st.markdown("☁️ Infrastructure Cost Components")
     
     cost_structure = st.session_state.model_data["hosting_costs_data"]["cost_structure"]
     
     # Add new category option
-    st.markdown("### Add New Category")
-    new_cat_col1, new_cat_col2 = st.columns([3, 1])
+    new_cat_col1, new_cat_col2 = st.columns([0.75, 3.25])
     with new_cat_col1:
         new_category_name = st.text_input("New Category Name:", key="new_category_name")
     with new_cat_col2:
@@ -421,55 +480,58 @@ def create_cost_structure_table(show_monthly=True):
             else:
                 st.error("Please enter a category name")
     
-    st.markdown("---")
-    
     # Display existing categories
     categories_to_delete = []
     
     for category, services in cost_structure.items():
+        # Add space above category
+        st.markdown("")
+        
         # Category header with delete option
-        cat_col1, cat_col2 = st.columns([4, 1])
+        cat_col1, cat_col2 = st.columns([0.75, 3.25])
         with cat_col1:
-            st.markdown(f"### {category}")
+            st.markdown(f"**{category}**")
         with cat_col2:
             if st.button(f"🗑️ Delete", key=f"delete_cat_{category}", help=f"Delete entire {category} category"):
                 categories_to_delete.append(category)
         
         # Add new service for this category
-        with st.expander(f"➕ Add New Service to {category}", expanded=False):
-            service_col1, service_col2, service_col3, service_col4 = st.columns([3, 2, 2, 1])
-            
-            with service_col1:
-                new_service_name = st.text_input("Service Name:", key=f"new_service_{category}")
-            with service_col2:
-                new_service_fixed = st.number_input("Fixed Cost:", min_value=0.0, value=0.0, step=50.0, key=f"new_fixed_{category}")
-            with service_col3:
-                new_service_variable = st.number_input("Per Customer:", min_value=0.0, value=0.0, step=0.01, key=f"new_variable_{category}")
-            with service_col4:
-                if st.button("Add", key=f"add_service_{category}"):
-                    if new_service_name and new_service_name not in services:
-                        cost_structure[category][new_service_name] = {
-                            "fixed": new_service_fixed,
-                            "variable": new_service_variable
-                        }
-                        st.success(f"Added service: {new_service_name}")
-                        st.rerun()
-                    elif new_service_name in services:
-                        st.error("Service already exists in this category!")
-                    else:
-                        st.error("Please enter a service name")
+        expander_cols = st.columns([3.25, 0.75])
+        with expander_cols[0]:
+            with st.expander(f"➕ Add New Service to {category}", expanded=False):
+                service_col1, service_col2, service_col3, service_col4 = st.columns([0.75, 0.75, 0.75, 1.75])
+                
+                with service_col1:
+                    new_service_name = st.text_input("Service Name:", key=f"new_service_{category}")
+                with service_col2:
+                    new_service_fixed = st.number_input("Fixed Cost:", min_value=0.0, value=0.0, step=50.0, key=f"new_fixed_{category}")
+                with service_col3:
+                    new_service_variable = st.number_input("Per Customer:", min_value=0.0, value=0.0, step=0.01, key=f"new_variable_{category}")
+                with service_col4:
+                    if st.button("Add", key=f"add_service_{category}"):
+                        if new_service_name and new_service_name not in services:
+                            cost_structure[category][new_service_name] = {
+                                "fixed": new_service_fixed,
+                                "variable": new_service_variable
+                            }
+                            st.success(f"Added service: {new_service_name}")
+                            st.rerun()
+                        elif new_service_name in services:
+                            st.error("Service already exists in this category!")
+                        else:
+                            st.error("Please enter a service name")
         
         # Service headers
-        cols = st.columns([3, 2, 2, 1])
-        cols[0].markdown("**Service**")
-        cols[1].markdown("**Fixed Monthly ($)**")
-        cols[2].markdown("**Per Customer ($)**")
-        cols[3].markdown("**Action**")
+        cols = st.columns([0.75, 0.75, 0.75, 1.75])
+        cols[0].markdown("Service")
+        cols[1].markdown("Fixed Monthly ($)")
+        cols[2].markdown("Per Customer ($)")
+        cols[3].markdown("Action")
         
         services_to_delete = []
         
         for service, costs in services.items():
-            cols = st.columns([3, 2, 2, 1])
+            cols = st.columns([0.75, 0.75, 0.75, 1.75])
             cols[0].markdown(f"<div class='cost-category'>{service}</div>", unsafe_allow_html=True)
             
             # Fixed cost input
@@ -515,14 +577,13 @@ def create_cost_structure_table(show_monthly=True):
 # Create monthly overrides table
 def create_monthly_overrides_table(show_monthly=True):
     """Create table for monthly override amounts"""
-    st.markdown("**🔧 Monthly Overrides**")
-    st.info("💡 Use overrides for one-time costs, migrations, or special circumstances")
+    st.markdown("🔧 Monthly Overrides")
     
     if show_monthly:
         years_dict = group_months_by_year(months)
         
         for year in sorted(years_dict.keys()):
-            with st.expander(f"📅 {year} Overrides", expanded=(year == "2025")):
+            with st.expander(f"📅 {year} Overrides", expanded=False):
                 cols = st.columns(4)
                 year_months = years_dict[year]
                 
@@ -650,8 +711,7 @@ def create_scaling_analysis():
 # Header
 st.markdown("""
 <div class="main-header">
-    <h1>☁️ SHAED Financial Model</h1>
-    <h2>Hosting Expenses</h2>
+    <h1>☁️ Hosting Costs</h1>
 </div>
 """, unsafe_allow_html=True)
 
@@ -698,137 +758,22 @@ st.markdown("---")
 # Initialize data
 initialize_hosting_costs_data()
 
-# Data management controls
-st.markdown('<div class="section-header">💾 Data Management</div>', unsafe_allow_html=True)
-
-nav_col1, nav_col2, nav_col3 = st.columns([1, 1, 1])
-
-with nav_col1:
-    if st.button("💾 Save Data", type="primary"):
-        update_integrated_dashboards()
-        if save_data(st.session_state.model_data):
-            st.success("Hosting costs saved and integrated with other dashboards!")
-        else:
-            st.error("Failed to save data")
-
-with nav_col2:
-    if st.button("📂 Load Data", type="secondary"):
-        st.session_state.model_data = load_data()
-        st.success("Data loaded successfully!")
-        st.rerun()
-
-with nav_col3:
-    if st.button("🔄 Recalculate", type="secondary"):
-        update_integrated_dashboards()
-        st.success("Hosting costs recalculated and integrated!")
-
-st.markdown("---")
-
 # View Mode Selection
-view_mode = st.selectbox(
-    "View Mode:",
-    ["Monthly + Yearly", "Yearly Only"],
-    key="hosting_view_mode"
-)
+view_col1, view_col2 = st.columns([0.75, 3.25])
+with view_col1:
+    view_mode = st.selectbox(
+        "View Mode:",
+        ["Monthly + Yearly", "Yearly Only"],
+        key="hosting_view_mode"
+    )
 
 show_monthly = view_mode == "Monthly + Yearly"
-
-st.markdown("---")
-
-
-
-# Summary Metrics
-st.markdown('<div class="section-header">📊 Hosting Costs Summary</div>', unsafe_allow_html=True)
-
-# Calculate totals
-monthly_costs, _ = calculate_total_hosting_costs()
-total_costs = sum(monthly_costs.values())
-avg_monthly = total_costs / len(months) if len(months) > 0 else 0
-
-# Calculate cost structure totals
-cost_structure = st.session_state.model_data["hosting_costs_data"]["cost_structure"]
-total_fixed = sum(
-    costs.get("fixed", 0)
-    for category in cost_structure.values()
-    for costs in category.values()
-)
-total_variable = sum(
-    costs.get("variable", 0)
-    for category in cost_structure.values()
-    for costs in category.values()
-)
-
-# Display metrics
-metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
-
-with metric_col1:
-    st.markdown(f"""
-    <div class="metric-container">
-        <h4>Total Hosting (6 Years)</h4>
-        <h2>${total_costs:,.0f}</h2>
-    </div>
-    """, unsafe_allow_html=True)
-
-with metric_col2:
-    st.markdown(f"""
-    <div class="metric-container">
-        <h4>Average Monthly</h4>
-        <h2>${avg_monthly:,.0f}</h2>
-    </div>
-    """, unsafe_allow_html=True)
-
-with metric_col3:
-    st.markdown(f"""
-    <div class="metric-container">
-        <h4>Fixed Costs/Month</h4>
-        <h2>${total_fixed:,.0f}</h2>
-    </div>
-    """, unsafe_allow_html=True)
-
-with metric_col4:
-    st.markdown(f"""
-    <div class="metric-container">
-        <h4>Variable $/Customer</h4>
-        <h2>${total_variable:.2f}</h2>
-    </div>
-    """, unsafe_allow_html=True)
-
-st.markdown("---")
 
 # Cost Structure Configuration
 st.markdown('<div class="section-header">💰 Infrastructure Cost Structure</div>', unsafe_allow_html=True)
 
 # Create cost structure table
 create_cost_structure_table(show_monthly)
-
-# Calculate and show example
-example_customers = 1000
-example_cost = total_fixed + (total_variable * example_customers)
-st.markdown(f"""
-**📊 Example Calculation:**
-With {example_customers:,} customers: ${total_fixed:,.2f} + (${total_variable:.2f} × {example_customers:,}) = **${example_cost:,.2f}/month**
-""")
-
-st.markdown("---")
-
-# Scaling Analysis
-st.markdown('<div class="section-header">📈 Scaling & Efficiency Analysis</div>', unsafe_allow_html=True)
-
-scale_col1, scale_col2 = st.columns(2)
-
-with scale_col1:
-    # Customer scaling chart
-    st.plotly_chart(create_scaling_analysis(), use_container_width=True)
-
-with scale_col2:
-    # Yearly projection chart
-    st.plotly_chart(create_cost_projection_chart(), use_container_width=True)
-
-st.markdown("---")
-
-# Monthly Overrides
-st.markdown('<div class="section-header">🔧 Monthly Overrides & Adjustments</div>', unsafe_allow_html=True)
-create_monthly_overrides_table(show_monthly)
 
 st.markdown("---")
 
@@ -849,10 +794,7 @@ if show_monthly:
         )
     
     with breakdown_filter_col2:
-        if selected_breakdown_year == "All Years":
-            st.info("💡 Showing all 6 years of data (2025-2030)")
-        else:
-            st.info(f"💡 Showing {selected_breakdown_year} monthly breakdown")
+        pass
     
     # Get monthly data
     monthly_costs, monthly_breakdown = calculate_total_hosting_costs()
@@ -864,6 +806,19 @@ if show_monthly:
     else:
         filtered_months = [month for month in months if month.endswith(selected_breakdown_year)]
     
+    # Get cost structure for detailed breakdown
+    cost_structure = st.session_state.model_data["hosting_costs_data"]["cost_structure"]
+    total_fixed = sum(
+        costs.get("fixed", 0)
+        for category in cost_structure.values()
+        for costs in category.values()
+    )
+    total_variable = sum(
+        costs.get("variable", 0)
+        for category in cost_structure.values()
+        for costs in category.values()
+    )
+    
     # Create monthly breakdown dataframe
     breakdown_data = []
     for month in filtered_months:
@@ -872,74 +827,261 @@ if show_monthly:
         cap_cost = capitalized_costs.get(month, 0)
         exp_cost = expensed_costs.get(month, 0)
         
+        # Calculate fixed and per customer costs
+        fixed_cost = total_fixed
+        per_customer_cost = total_variable * subscribers
+        
         breakdown_data.append({
             "Month": month,
             "Subscribers": subscribers,
+            "Fixed Cost": fixed_cost,
+            "Per Customer Cost": per_customer_cost,
             "Total Cost": total_cost,
             "Capitalized": cap_cost,
             "Expensed (COGS)": exp_cost,
             "Cost/Customer": total_cost / subscribers if subscribers > 0 else 0
         })
     
-    breakdown_df = pd.DataFrame(breakdown_data)
+    # Create custom HTML table with green styling
+    html_table = '<div class="green-table-container">'
+    html_table += '<table class="green-table">'
     
-    # Configure columns
-    column_config = {
-        "Month": st.column_config.TextColumn("Month", width="small"),
-        "Subscribers": st.column_config.NumberColumn("Customers", format="%.0f", width="small"),
-        "Total Cost": st.column_config.NumberColumn("Total Cost", format="$%.0f", width="small"),
-        "Capitalized": st.column_config.NumberColumn("Capitalized", format="$%.0f", width="small"),
-        "Expensed (COGS)": st.column_config.NumberColumn("COGS", format="$%.0f", width="small"),
-        "Cost/Customer": st.column_config.NumberColumn("$/Customer", format="$%.2f", width="small")
-    }
+    # Table header
+    html_table += '<thead><tr>'
+    headers = ["Month", "Customers", "🏗️ Fixed Cost", "👥 Per Customer", "💰 Total Cost", "📈 Capitalized", "💸 COGS", "💳 $/Customer"]
+    for header in headers:
+        html_table += f'<th>{header}</th>'
+    html_table += '</tr></thead>'
     
-    st.dataframe(
-        breakdown_df,
-        column_config=column_config,
-        use_container_width=True,
-        hide_index=True,
-        height=400
+    # Table body
+    html_table += '<tbody>'
+    for row in breakdown_data:
+        html_table += '<tr>'
+        html_table += f'<td style="text-align: left; font-weight: 600;">{row["Month"]}</td>'
+        html_table += f'<td>{row["Subscribers"]:,.0f}</td>'
+        html_table += f'<td>${row["Fixed Cost"]:,.0f}</td>'
+        html_table += f'<td>${row["Per Customer Cost"]:,.0f}</td>'
+        html_table += f'<td>${row["Total Cost"]:,.0f}</td>'
+        html_table += f'<td>${row["Capitalized"]:,.0f}</td>'
+        html_table += f'<td>${row["Expensed (COGS)"]:,.0f}</td>'
+        html_table += f'<td>${row["Cost/Customer"]:,.2f}</td>'
+        html_table += '</tr>'
+    html_table += '</tbody>'
+    html_table += '</table>'
+    html_table += '</div>'
+    
+    st.markdown(html_table, unsafe_allow_html=True)
+    
+st.markdown("---")
+
+# KEY METRICS
+st.markdown('<div class="section-header">📈 Key Metrics</div>', unsafe_allow_html=True)
+
+# Time period and metrics selection
+metric_col1, metric_col2, metric_col3 = st.columns([0.75, 0.75, 2.5])
+
+with metric_col1:
+    # Add dropdown for time period selection
+    summary_options = ["Current", "2025", "2026", "2027", "2028", "2029", "2030", "All Years"]
+    try:
+        current_year = str(datetime.now().year)
+        default_index = summary_options.index(current_year) if current_year in summary_options else 0
+    except ValueError:
+        default_index = 0
+    
+    selected_period = st.selectbox(
+        "Select time period:",
+        options=summary_options,
+        index=default_index,
+        key="hosting_period_select"
     )
+
+with metric_col2:
+    # Add dropdown for metrics selection
+    metrics_options = ["Cost Overview", "Infrastructure Breakdown"]
+    selected_metrics = st.selectbox(
+        "Select Key Metrics:",
+        options=metrics_options,
+        index=0,
+        key="hosting_metrics_select"
+    )
+
+# Calculate hosting metrics based on selected period
+monthly_costs, monthly_breakdown = calculate_total_hosting_costs()
+capitalized_costs, expensed_costs = calculate_capitalized_vs_expensed()
+
+# Calculate cost structure totals
+cost_structure = st.session_state.model_data["hosting_costs_data"]["cost_structure"]
+total_fixed = sum(
+    costs.get("fixed", 0)
+    for category in cost_structure.values()
+    for costs in category.values()
+)
+total_variable = sum(
+    costs.get("variable", 0)
+    for category in cost_structure.values()
+    for costs in category.values()
+)
+
+# Calculate financial totals based on selected period
+if selected_period == "Current":
+    # Show 6-year totals for current view
+    total_hosting_costs = sum(monthly_costs.values())
+    total_capitalized = sum(capitalized_costs.values())
+    total_expensed = sum(expensed_costs.values())
+    period_label = "6-Year Total"
+    period_months_count = 72  # 6 years * 12 months
+elif selected_period == "All Years":
+    # Show 6-year totals
+    total_hosting_costs = sum(monthly_costs.values())
+    total_capitalized = sum(capitalized_costs.values())
+    total_expensed = sum(expensed_costs.values())
+    period_label = "6-Year Total"
+    period_months_count = 72  # 6 years * 12 months
+else:
+    # Show specific year totals
+    year_months = [f"{month} {selected_period}" for month in ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]]
+    total_hosting_costs = sum(monthly_costs.get(month, 0) for month in year_months)
+    total_capitalized = sum(capitalized_costs.get(month, 0) for month in year_months)
+    total_expensed = sum(expensed_costs.get(month, 0) for month in year_months)
+    period_label = f"{selected_period} Total"
+    period_months_count = 12
+
+# Calculate average monthly
+avg_monthly = total_hosting_costs / period_months_count if period_months_count > 0 else 0
+
+# Calculate average customers for the period
+if selected_period == "Current" or selected_period == "All Years":
+    period_months_list = months
+else:
+    period_months_list = [f"{month} {selected_period}" for month in ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]]
+
+total_customers = 0
+customer_months = 0
+for month in period_months_list:
+    customers = get_active_subscribers(month)
+    total_customers += customers
+    customer_months += 1
+avg_customers = total_customers / customer_months if customer_months > 0 else 0
+
+# Conditional KPI display based on selected metrics
+if selected_metrics == "Cost Overview":
+    # Cost Overview KPIs
+    cost_col1, cost_col2, cost_col3, cost_col4, cost_col5 = st.columns(5)
+
+    with cost_col1:
+        st.markdown(f"""
+        <div class="metric-container">
+            <h4 style="color: #00D084; margin: 0;">💰 Total Hosting</h4>
+            <h2 style="margin: 0.5rem 0 0 0;">${total_hosting_costs:,.0f}</h2>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with cost_col2:
+        st.markdown(f"""
+        <div class="metric-container">
+            <h4 style="color: #00D084; margin: 0;">📅 Average Monthly</h4>
+            <h2 style="margin: 0.5rem 0 0 0;">${avg_monthly:,.0f}</h2>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with cost_col3:
+        st.markdown(f"""
+        <div class="metric-container">
+            <h4 style="color: #00D084; margin: 0;">🏗️ Fixed Costs/Month</h4>
+            <h2 style="margin: 0.5rem 0 0 0;">${total_fixed:,.0f}</h2>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with cost_col4:
+        st.markdown(f"""
+        <div class="metric-container">
+            <h4 style="color: #00D084; margin: 0;">👥 Variable $/Customer</h4>
+            <h2 style="margin: 0.5rem 0 0 0;">${total_variable:.2f}</h2>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with cost_col5:
+        cost_per_customer = avg_monthly / avg_customers if avg_customers > 0 else 0
+        st.markdown(f"""
+        <div class="metric-container">
+            <h4 style="color: #00D084; margin: 0;">💳 Avg Cost/Customer</h4>
+            <h2 style="margin: 0.5rem 0 0 0;">${cost_per_customer:,.2f}</h2>
+        </div>
+        """, unsafe_allow_html=True)
+
+elif selected_metrics == "Infrastructure Breakdown":
+    # Infrastructure Breakdown KPIs
+    # Calculate costs by category
+    category_costs = {}
+    for category, services in cost_structure.items():
+        cat_fixed = sum(costs.get("fixed", 0) for costs in services.values())
+        cat_variable = sum(costs.get("variable", 0) for costs in services.values())
+        category_costs[category] = {"fixed": cat_fixed, "variable": cat_variable, "total": cat_fixed + (cat_variable * avg_customers)}
     
-    # Show summary for filtered data
-    if breakdown_data:
-        total_filtered_cost = sum(row["Total Cost"] for row in breakdown_data)
-        total_filtered_cap = sum(row["Capitalized"] for row in breakdown_data)
-        total_filtered_exp = sum(row["Expensed (COGS)"] for row in breakdown_data)
+    # Display top 4 categories
+    sorted_categories = sorted(category_costs.items(), key=lambda x: x[1]["total"], reverse=True)
+    
+    infra_col1, infra_col2, infra_col3, infra_col4 = st.columns(4)
+    
+    for i, (category, costs) in enumerate(sorted_categories[:4]):
+        # Determine icon based on category name
+        if "Cloud" in category:
+            icon = "☁️"
+        elif "Support" in category:
+            icon = "🔧"
+        elif "Third" in category or "Party" in category:
+            icon = "🔗"
+        else:
+            icon = "📡"
         
-        summary_text = f"**{selected_breakdown_year} Summary:** Total: ${total_filtered_cost:,.0f} | Capitalized: ${total_filtered_cap:,.0f} | Expensed: ${total_filtered_exp:,.0f}"
-        st.markdown(summary_text)
+        monthly_cost = costs["fixed"] + (costs["variable"] * avg_customers)
+        
+        cols = [infra_col1, infra_col2, infra_col3, infra_col4]
+        with cols[i]:
+            st.markdown(f"""
+            <div class="metric-container">
+                <h4 style="color: #00D084; margin: 0;">{icon} {category}</h4>
+                <h2 style="margin: 0.5rem 0 0 0;">${monthly_cost:,.0f}</h2>
+            </div>
+            """, unsafe_allow_html=True)
 
-# Integration Status
-st.markdown('<div class="section-header">🔗 Integration Status</div>', unsafe_allow_html=True)
+# Charts
+scale_col1, scale_col2 = st.columns(2)
 
-int_col1, int_col2 = st.columns(2)
+with scale_col1:
+    # Customer scaling chart
+    st.plotly_chart(create_scaling_analysis(), use_container_width=True)
 
-with int_col1:
-    st.markdown("""
-    **✅ Gross Profit Integration:**
-    - Hosting costs are automatically included in COGS calculations
-    - Expensed costs reduce gross profit margins
-    - Capitalized costs are excluded from monthly COGS
-    
-    **✅ Liquidity Forecast Integration:**
-    - Hosting costs reduce license fees in the liquidity forecast
-    - This prevents double-counting of hosting expenses
-    - Cash flow projections reflect actual hosting commitments
-    """)
+with scale_col2:
+    # Yearly projection chart
+    st.plotly_chart(create_cost_projection_chart(), use_container_width=True)
 
-with int_col2:
-    st.markdown("""
-    **✅ Liquidity Dashboard Integration:**
-    - License Fees automatically reduced by expensed hosting
-    - Prevents double-counting of hosting costs
-    - Original license fees preserved for reference
-    """)
+# DATA MANAGEMENT
+st.markdown("---")
+st.markdown('<div class="section-header">💾 Data Management</div>', unsafe_allow_html=True)
+
+col1, col2 = st.columns(2)
+
+with col1:
+    if st.button("💾 Save Data", type="primary", use_container_width=True):
+        update_integrated_dashboards()
+        if save_data(st.session_state.model_data):
+            st.success("✅ Hosting costs saved and integrated with other dashboards!")
+        else:
+            st.error("❌ Failed to save data")
+
+with col2:
+    if st.button("📂 Load Data", type="primary", use_container_width=True):
+        st.session_state.model_data = load_data()
+        st.success("✅ Data loaded successfully!")
+        st.rerun()
 
 # Footer
 st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: #666; padding: 1rem;">
-    <strong>SHAED Financial Model - Hosting Costs Dashboard</strong> | Powering the future of mobility
+    <strong>SHAED Financial Model - Hosting Costs</strong> | Powering the future of mobility<br/>
+    © 2025 SHAED - All rights reserved
 </div>
 """, unsafe_allow_html=True)

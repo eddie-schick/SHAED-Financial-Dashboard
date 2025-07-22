@@ -252,7 +252,7 @@ col7, col8, col9 = st.columns([1, 1, 1])
 with col8:
     st.markdown("""
     <div class="nav-card">
-        <h3>☁️ Hosting Expenses</h3>
+        <h3>☁️ Hosting Costs</h3>
         <p>Infrastructure costs and scaling analysis</p>
     </div>
     """, unsafe_allow_html=True)

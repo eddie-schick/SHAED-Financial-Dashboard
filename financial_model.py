@@ -544,7 +544,7 @@ def get_active_subscribers(month):
     return total_subscribers
 
 def calculate_hosting_costs_from_gross_profit_model():
-    """Calculate hosting costs based on gross profit model structure"""
+    """Calculate hosting costs based on gross profit model monthly structure"""
     if "gross_profit_data" not in st.session_state.model_data:
         return {}, {}
     
@@ -552,16 +552,21 @@ def calculate_hosting_costs_from_gross_profit_model():
     
     # Get hosting structure
     hosting_structure = gp_data.get("saas_hosting_structure", {
-        "fixed_monthly_cost": 500.0,
-        "cost_per_customer": 0.50,
+        "fixed_monthly_cost": 15400.0,  # Legacy fallback
+        "cost_per_customer": 5.0,       # Legacy fallback
         "go_live_month": "Jan 2025",
         "capitalize_before_go_live": True
     })
     
-    fixed_cost = hosting_structure.get("fixed_monthly_cost", 500.0)
-    variable_cost = hosting_structure.get("cost_per_customer", 0.50)
+    # Get monthly data (new structure)
+    monthly_fixed_costs = hosting_structure.get("monthly_fixed_costs", {})
+    monthly_variable_costs = hosting_structure.get("monthly_variable_costs", {})
     go_live_month = hosting_structure.get("go_live_month", "Jan 2025")
     capitalize_before_go_live = hosting_structure.get("capitalize_before_go_live", True)
+    
+    # Fallback to legacy structure if monthly data not available
+    legacy_fixed = hosting_structure.get("fixed_monthly_cost", 15400.0)
+    legacy_variable = hosting_structure.get("cost_per_customer", 5.0)
     
     hosting_costs = {}
     capitalized_hosting = {}
@@ -574,6 +579,11 @@ def calculate_hosting_costs_from_gross_profit_model():
     
     for i, month in enumerate(months):
         active_subscribers = get_active_subscribers(month)
+        
+        # Use monthly data if available, otherwise use legacy values
+        fixed_cost = monthly_fixed_costs.get(month, legacy_fixed)
+        variable_cost = monthly_variable_costs.get(month, legacy_variable)
+        
         calculated_cost = fixed_cost + (variable_cost * active_subscribers)
         
         # Determine if costs should be capitalized or expensed

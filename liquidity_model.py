@@ -1153,7 +1153,7 @@ def create_expense_table_with_years(categories, show_monthly=True):
 
 # Function to calculate departmental breakdown for charts
 def calculate_departmental_breakdown():
-    """Calculate spending by department using payroll/contractor departmental data and expense classifications"""
+    """Calculate spending by department using actual cash disbursements allocated by department percentages from headcount data"""
     
     # Initialize department totals
     department_totals = {
@@ -1162,56 +1162,70 @@ def calculate_departmental_breakdown():
         "Operations": {month: 0 for month in months}  # Renamed from "Opex" for display
     }
     
-    # Get payroll and contractor costs by department from headcount data
+    # Get actual cash disbursements from liquidity expenses
+    expenses = st.session_state.model_data["liquidity_data"].get("expenses", {})
+    actual_payroll_disbursements = expenses.get("Payroll", {month: 0 for month in months})
+    actual_contractor_disbursements = expenses.get("Contractors", {month: 0 for month in months})
+    
+    # Calculate departmental allocation percentages from headcount data
     if "payroll_data" in st.session_state.model_data:
-        # Get departmental payroll breakdown
-        payroll_by_dept, _ = get_calculated_payroll_from_headcount()
+        # Get theoretical departmental payroll breakdown to calculate percentages
+        payroll_by_dept, total_theoretical_payroll = get_calculated_payroll_from_headcount()
         
-        # Get departmental contractor breakdown
-        if "payroll_data" in st.session_state.model_data:
-            payroll_data = st.session_state.model_data["payroll_data"]
-            contractors = payroll_data.get("contractors", {})
-            
-            contractor_costs_by_dept = {
-                "Product Development": {month: 0 for month in months},
-                "Sales and Marketing": {month: 0 for month in months},
-                "Opex": {month: 0 for month in months}
-            }
-            
-            for contractor_data in contractors.values():
-                resources = contractor_data.get("resources", 0)
-                hourly_rate = contractor_data.get("hourly_rate", 0)
-                department = contractor_data.get("department", "Product Development")
-                monthly_cost = resources * hourly_rate * 40 * 4
-                
-                for month in months:
-                    if is_contractor_active_for_month(contractor_data, month):
-                        contractor_costs_by_dept[department][month] += monthly_cost
-        else:
-            contractor_costs_by_dept = {
-                "Product Development": {month: 0 for month in months},
-                "Sales and Marketing": {month: 0 for month in months},
-                "Opex": {month: 0 for month in months}
-            }
+        # Get theoretical departmental contractor breakdown to calculate percentages
+        payroll_data = st.session_state.model_data["payroll_data"]
+        contractors = payroll_data.get("contractors", {})
         
-        # Add payroll and contractor costs to department totals
+        contractor_costs_by_dept = {
+            "Product Development": {month: 0 for month in months},
+            "Sales and Marketing": {month: 0 for month in months},
+            "Opex": {month: 0 for month in months}
+        }
+        total_theoretical_contractors = {month: 0 for month in months}
+        
+        for contractor_data in contractors.values():
+            resources = contractor_data.get("resources", 0)
+            hourly_rate = contractor_data.get("hourly_rate", 0)
+            department = contractor_data.get("department", "Product Development")
+            monthly_cost = resources * hourly_rate * 40 * 4
+            
+            for month in months:
+                if is_contractor_active_for_month(contractor_data, month):
+                    contractor_costs_by_dept[department][month] += monthly_cost
+                    total_theoretical_contractors[month] += monthly_cost
+        
+        # Apply departmental percentages to actual cash disbursements
         for month in months:
-            department_totals["Product Development"][month] += (
-                payroll_by_dept["Product Development"].get(month, 0) + 
-                contractor_costs_by_dept["Product Development"].get(month, 0)
-            )
-            department_totals["Sales and Marketing"][month] += (
-                payroll_by_dept["Sales and Marketing"].get(month, 0) + 
-                contractor_costs_by_dept["Sales and Marketing"].get(month, 0)
-            )
-            department_totals["Operations"][month] += (
-                payroll_by_dept["Opex"].get(month, 0) + 
-                contractor_costs_by_dept["Opex"].get(month, 0)
-            )
+            # Allocate payroll disbursements by department percentage
+            total_payroll = total_theoretical_payroll.get(month, 0)
+            actual_payroll = actual_payroll_disbursements.get(month, 0)
+            
+            if total_payroll > 0:
+                # Calculate department percentages and apply to actual disbursements
+                pd_payroll_pct = payroll_by_dept["Product Development"].get(month, 0) / total_payroll
+                sm_payroll_pct = payroll_by_dept["Sales and Marketing"].get(month, 0) / total_payroll
+                ops_payroll_pct = payroll_by_dept["Opex"].get(month, 0) / total_payroll
+                
+                department_totals["Product Development"][month] += actual_payroll * pd_payroll_pct
+                department_totals["Sales and Marketing"][month] += actual_payroll * sm_payroll_pct
+                department_totals["Operations"][month] += actual_payroll * ops_payroll_pct
+            
+            # Allocate contractor disbursements by department percentage
+            total_contractors = total_theoretical_contractors.get(month, 0)
+            actual_contractors = actual_contractor_disbursements.get(month, 0)
+            
+            if total_contractors > 0:
+                # Calculate department percentages and apply to actual disbursements
+                pd_contractor_pct = contractor_costs_by_dept["Product Development"].get(month, 0) / total_contractors
+                sm_contractor_pct = contractor_costs_by_dept["Sales and Marketing"].get(month, 0) / total_contractors
+                ops_contractor_pct = contractor_costs_by_dept["Opex"].get(month, 0) / total_contractors
+                
+                department_totals["Product Development"][month] += actual_contractors * pd_contractor_pct
+                department_totals["Sales and Marketing"][month] += actual_contractors * sm_contractor_pct
+                department_totals["Operations"][month] += actual_contractors * ops_contractor_pct
     
     # Add other expense categories based on their classification
     expense_categories = st.session_state.model_data["liquidity_data"].get("expense_categories", {})
-    expenses = st.session_state.model_data["liquidity_data"].get("expenses", {})
     
     # Classification to department mapping
     classification_to_dept = {
@@ -2487,29 +2501,30 @@ with data_col3:
             # Export Cash Receipts Data
             liquidity_data = st.session_state.model_data.get("liquidity_data", {})
             
+            # Export all cash inflow components
+            cash_inflows_data = {}
             if "revenue" in liquidity_data:
-                revenue_df = pd.DataFrame({'Revenue': liquidity_data['revenue']})
-                revenue_df.index.name = 'Month'
-                revenue_df.to_excel(writer, sheet_name='Revenue')
-            
+                cash_inflows_data['Revenue'] = liquidity_data['revenue']
             if "other_cash_receipts" in liquidity_data:
-                other_receipts_df = pd.DataFrame({'Other Cash Receipts': liquidity_data['other_cash_receipts']})
-                other_receipts_df.index.name = 'Month'
-                other_receipts_df.to_excel(writer, sheet_name='Other Cash Receipts')
-            
+                cash_inflows_data['Other Cash Receipts'] = liquidity_data['other_cash_receipts']
             if "investment" in liquidity_data:
-                investment_df = pd.DataFrame({'Investment': liquidity_data['investment']})
-                investment_df.index.name = 'Month'
-                investment_df.to_excel(writer, sheet_name='Investment')
+                cash_inflows_data['Investment'] = liquidity_data['investment']
             
-            # Export Expense Categories
+            if cash_inflows_data:
+                cash_inflows_df = pd.DataFrame(cash_inflows_data)
+                cash_inflows_df.index.name = 'Month'
+                cash_inflows_df.to_excel(writer, sheet_name='Cash Inflows')
+            
+            # Export Expense Categories (Cash Outflows)
             if "expenses" in liquidity_data and liquidity_data["expenses"]:
-                expenses_df = pd.DataFrame(liquidity_data["expenses"]).T
+                expenses_df = pd.DataFrame(liquidity_data["expenses"])
                 expenses_df.index.name = 'Month'
-                expenses_df.to_excel(writer, sheet_name='Expenses')
+                expenses_df.to_excel(writer, sheet_name='Cash Outflows')
             
-            # Export Cash Flow Summary
+            # Export Cash Flow Summary with calculated values
             cash_flow_summary = []
+            cumulative_balance = liquidity_data.get("starting_balance", 0)
+            
             for month in months:
                 # Cash inflows
                 revenue = liquidity_data.get("revenue", {}).get(month, 0)
@@ -2523,24 +2538,8 @@ with data_col3:
                 for category in expense_categories:
                     total_outflows += liquidity_data.get("expenses", {}).get(category, {}).get(month, 0)
                 
-                # Net cash flow
+                # Net cash flow and cumulative balance
                 net_cash_flow = total_inflows - total_outflows
-                
-                # Calculate cumulative cash balance
-                starting_balance = liquidity_data.get("starting_balance", 0)
-                cumulative_balance = starting_balance
-                
-                # Sum up all previous months
-                for prev_month in months:
-                    if prev_month == month:
-                        break
-                    prev_revenue = liquidity_data.get("revenue", {}).get(prev_month, 0)
-                    prev_other = liquidity_data.get("other_cash_receipts", {}).get(prev_month, 0)
-                    prev_investment = liquidity_data.get("investment", {}).get(prev_month, 0)
-                    prev_expenses = sum(liquidity_data.get("expenses", {}).get(cat, {}).get(prev_month, 0) for cat in expense_categories)
-                    cumulative_balance += prev_revenue + prev_other + prev_investment - prev_expenses
-                
-                # Add current month
                 cumulative_balance += net_cash_flow
                 
                 cash_flow_summary.append({
@@ -2557,6 +2556,134 @@ with data_col3:
             if cash_flow_summary:
                 cash_flow_df = pd.DataFrame(cash_flow_summary)
                 cash_flow_df.to_excel(writer, sheet_name='Cash Flow Summary', index=False)
+            
+            # Export Departmental Breakdown Data
+            department_totals = calculate_departmental_breakdown()
+            department_percentages = calculate_departmental_percentages(department_totals)
+            
+            # Gross spend by department
+            if department_totals:
+                dept_gross_df = pd.DataFrame(department_totals)
+                dept_gross_df.index.name = 'Month'
+                dept_gross_df.to_excel(writer, sheet_name='Gross Spend by Department')
+            
+            # Percentage spend by department
+            if department_percentages:
+                dept_percent_df = pd.DataFrame(department_percentages)
+                dept_percent_df.index.name = 'Month'
+                dept_percent_df.to_excel(writer, sheet_name='% Spend by Department')
+            
+            # Export Key Metrics for different time periods
+            years_dict = group_months_by_year(months)
+            metrics_summary = []
+            
+            # Calculate metrics for each year and overall
+            for year in sorted(years_dict.keys()):
+                year_months = years_dict[year]
+                
+                year_inflows = sum(
+                    liquidity_data.get("revenue", {}).get(month, 0) +
+                    liquidity_data.get("other_cash_receipts", {}).get(month, 0) +
+                    liquidity_data.get("investment", {}).get(month, 0)
+                    for month in year_months
+                )
+                
+                year_outflows = sum(
+                    sum(liquidity_data.get("expenses", {}).get(category, {}).get(month, 0)
+                        for category in expense_categories)
+                    for month in year_months
+                )
+                
+                year_net_flow = year_inflows - year_outflows
+                year_end_balance = cash_flow_summary[months.index(year_months[-1])]['Cumulative Cash Balance'] if cash_flow_summary else 0
+                
+                metrics_summary.append({
+                    'Period': year,
+                    'Total Inflows': year_inflows,
+                    'Total Outflows': year_outflows,
+                    'Net Cash Flow': year_net_flow,
+                    'Ending Balance': year_end_balance
+                })
+            
+            # Add overall totals
+            total_inflows = sum(row['Total Inflows'] for row in metrics_summary)
+            total_outflows = sum(row['Total Outflows'] for row in metrics_summary)
+            total_net_flow = total_inflows - total_outflows
+            final_balance = metrics_summary[-1]['Ending Balance'] if metrics_summary else 0
+            
+            metrics_summary.append({
+                'Period': 'All Years',
+                'Total Inflows': total_inflows,
+                'Total Outflows': total_outflows,
+                'Net Cash Flow': total_net_flow,
+                'Ending Balance': final_balance
+            })
+            
+            if metrics_summary:
+                metrics_df = pd.DataFrame(metrics_summary)
+                metrics_df.to_excel(writer, sheet_name='Key Metrics by Period', index=False)
+            
+            # Export Configuration Data
+            config_data = []
+            config_data.append(['Starting Cash Balance', liquidity_data.get("starting_balance", 0)])
+            
+            # Find cash out month
+            cash_out_month = None
+            for row in cash_flow_summary:
+                if row['Cumulative Cash Balance'] < 0:
+                    cash_out_month = row['Month']
+                    break
+            
+            config_data.append(['Cash Runway', cash_out_month if cash_out_month else 'Sufficient'])
+            
+            config_df = pd.DataFrame(config_data, columns=['Setting', 'Value'])
+            config_df.to_excel(writer, sheet_name='Configuration', index=False)
+            
+            # Export Expense Categories with Classifications
+            if "expense_categories" in liquidity_data:
+                category_info = []
+                for category, info in liquidity_data["expense_categories"].items():
+                    category_info.append({
+                        'Expense Category': category,
+                        'Classification': info.get('classification', 'Opex'),
+                        'Editable': info.get('editable', True),
+                        'Auto Calculated': info.get('auto_calc', False)
+                    })
+                
+                if category_info:
+                    category_df = pd.DataFrame(category_info)
+                    category_df.to_excel(writer, sheet_name='Expense Categories', index=False)
+            
+            # Export Yearly Totals Summary
+            yearly_summary = []
+            for year in sorted(years_dict.keys()):
+                year_months = years_dict[year]
+                
+                # Calculate yearly totals for each major category
+                yearly_data = {'Year': year}
+                
+                # Cash inflows breakdown
+                yearly_data['Revenue'] = sum(liquidity_data.get("revenue", {}).get(month, 0) for month in year_months)
+                yearly_data['Other Cash Receipts'] = sum(liquidity_data.get("other_cash_receipts", {}).get(month, 0) for month in year_months)
+                yearly_data['Investment'] = sum(liquidity_data.get("investment", {}).get(month, 0) for month in year_months)
+                yearly_data['Total Inflows'] = yearly_data['Revenue'] + yearly_data['Other Cash Receipts'] + yearly_data['Investment']
+                
+                # Cash outflows by department
+                dept_totals_year = {dept: sum(department_totals[dept].get(month, 0) for month in year_months) for dept in department_totals.keys()}
+                yearly_data['Product Development'] = dept_totals_year.get('Product Development', 0)
+                yearly_data['Sales and Marketing'] = dept_totals_year.get('Sales and Marketing', 0)
+                yearly_data['Operations'] = dept_totals_year.get('Operations', 0)
+                yearly_data['Total Outflows'] = sum(dept_totals_year.values())
+                
+                # Net and ending balance
+                yearly_data['Net Cash Flow'] = yearly_data['Total Inflows'] - yearly_data['Total Outflows']
+                yearly_data['Ending Balance'] = cash_flow_summary[months.index(year_months[-1])]['Cumulative Cash Balance'] if cash_flow_summary else 0
+                
+                yearly_summary.append(yearly_data)
+            
+            if yearly_summary:
+                yearly_df = pd.DataFrame(yearly_summary)
+                yearly_df.to_excel(writer, sheet_name='Yearly Summary', index=False)
         
         # Read the file data for download
         with open(temp_path, 'rb') as f:
