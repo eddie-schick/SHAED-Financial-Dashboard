@@ -1363,53 +1363,50 @@ if "budget_data" not in st.session_state.model_data:
 budget_col1, budget_col2, budget_col3, budget_col4 = st.columns([2, 2, 2, 2])
 
 with budget_col1:
-    # Get available years from data
-    available_years = sorted(list(set([month.split(" ")[1] for month in months if len(month.split(" ")) > 1])))
-    if available_years:
-        # Default to current year or latest available year
-        current_year = datetime.now().year
-        try:
-            default_year_index = available_years.index(str(current_year))
-        except ValueError:
-            default_year_index = len(available_years) - 1
-        
-        budget_selected_year = st.selectbox(
-            "Budget Year",
-            available_years,
-            index=default_year_index,
-            key="budget_year_filter"
-        )
+    # Extended budget years - include future years for budget planning
+    budget_years = ["2025", "2026", "2027", "2028", "2029", "2030", "2031", "2032", "2033", "2034", "2035"]
+    
+    # Default to current year or next year for budget planning
+    current_year = datetime.now().year
+    if str(current_year) in budget_years:
+        default_year_index = budget_years.index(str(current_year))
+    elif str(current_year + 1) in budget_years:
+        default_year_index = budget_years.index(str(current_year + 1))
     else:
-        budget_selected_year = "2025"
+        default_year_index = 0
+    
+    budget_selected_year = st.selectbox(
+        "Budget Year",
+        budget_years,
+        index=default_year_index,
+        key="budget_year_filter"
+    )
 
 with budget_col2:
-    # Get months for selected year
-    if budget_selected_year:
-        budget_year_months = [month for month in months if month.endswith(budget_selected_year)]
-    else:
-        budget_year_months = months
+    # Generate all months for selected budget year (not limited to model data)
+    budget_month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    budget_year_months = [f"{month} {budget_selected_year}" for month in budget_month_names]
     
-    if budget_year_months:
-        # Default to previous month
-        current_date = datetime.now()
-        if current_date.month == 1:
-            default_month = f"{calendar.month_name[12]} {current_date.year - 1}"
-        else:
-            default_month = f"{calendar.month_name[current_date.month - 1]} {current_date.year}"
-        
-        try:
-            default_month_index = budget_year_months.index(default_month)
-        except ValueError:
-            default_month_index = len(budget_year_months) - 1
-        
-        budget_selected_month = st.selectbox(
-            "Budget Month",
-            budget_year_months,
-            index=default_month_index,
-            key="budget_month_filter"
-        )
-    else:
-        budget_selected_month = "Jun 2025"
+    # Default to current month or next month for budget planning
+    current_date = datetime.now()
+    current_month_name = current_date.strftime("%b")
+    default_budget_month = f"{current_month_name} {budget_selected_year}"
+    
+    # If we're in December, default to January of selected year
+    if current_date.month == 12 and int(budget_selected_year) > current_date.year:
+        default_budget_month = f"Jan {budget_selected_year}"
+    
+    try:
+        default_month_index = budget_year_months.index(default_budget_month)
+    except ValueError:
+        default_month_index = 0  # Default to January
+    
+    budget_selected_month = st.selectbox(
+        "Budget Month",
+        budget_year_months,
+        index=default_month_index,
+        key="budget_month_filter"
+    )
 
 with budget_col3:
     budget_calculation_type = st.selectbox(
@@ -1438,7 +1435,7 @@ else:
 
 # Function to get actual values
 def get_actual_values(period_type, month_or_period):
-    """Get actual values for budget comparison"""
+    """Get actual values for budget comparison - handles future periods gracefully"""
     # Get dynamic expense categories from liquidity tab
     expense_categories = st.session_state.model_data.get("liquidity_data", {}).get("category_order", [])
     
@@ -1446,7 +1443,7 @@ def get_actual_values(period_type, month_or_period):
         # MTD actuals (single month)
         month = month_or_period
         actuals = {
-            # Revenue
+            # Revenue - safely handle missing months with get() defaults
             "subscription_revenue": st.session_state.model_data.get("revenue", {}).get("Subscription", {}).get(month, 0),
             "transactional_revenue": st.session_state.model_data.get("revenue", {}).get("Transactional", {}).get(month, 0),
             "implementation_revenue": st.session_state.model_data.get("revenue", {}).get("Implementation", {}).get(month, 0),
@@ -1454,7 +1451,7 @@ def get_actual_values(period_type, month_or_period):
             "onboarding_revenue": st.session_state.model_data.get("revenue", {}).get("Onboarding", {}).get(month, 0),
         }
         
-        # Add dynamic expenses from liquidity data
+        # Add dynamic expenses from liquidity data - safely handle missing data
         for category in expense_categories:
             category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
             actuals[category_key] = st.session_state.model_data.get("liquidity_data", {}).get("expenses", {}).get(category, {}).get(month, 0)
@@ -1475,7 +1472,7 @@ def get_actual_values(period_type, month_or_period):
             category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
             actuals[category_key] = 0
         
-        # Sum across all months in the period
+        # Sum across all months in the period - safely handle missing months
         for month in month_or_period:
             actuals["subscription_revenue"] += st.session_state.model_data.get("revenue", {}).get("Subscription", {}).get(month, 0)
             actuals["transactional_revenue"] += st.session_state.model_data.get("revenue", {}).get("Transactional", {}).get(month, 0)
@@ -1483,7 +1480,7 @@ def get_actual_values(period_type, month_or_period):
             actuals["maintenance_revenue"] += st.session_state.model_data.get("revenue", {}).get("Maintenance", {}).get(month, 0)
             actuals["onboarding_revenue"] += st.session_state.model_data.get("revenue", {}).get("Onboarding", {}).get(month, 0)
             
-            # Add dynamic expenses
+            # Add dynamic expenses - safely handle missing data
             for category in expense_categories:
                 category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
                 actuals[category_key] += st.session_state.model_data.get("liquidity_data", {}).get("expenses", {}).get(category, {}).get(month, 0)
@@ -1494,8 +1491,14 @@ def get_actual_values(period_type, month_or_period):
 if budget_period == "MTD":
     budget_months = [budget_selected_month]
 else:
-    # Get YTD months for the selected year
-    budget_months = [month for month in months if month.endswith(budget_selected_year)]
+    # Get YTD months for the selected year - generate them even if not in model data
+    budget_month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    selected_month_name = budget_selected_month.split(" ")[0]
+    try:
+        month_index = budget_month_names.index(selected_month_name)
+        budget_months = [f"{month} {budget_selected_year}" for month in budget_month_names[:month_index + 1]]
+    except ValueError:
+        budget_months = [budget_selected_month]
 
 actuals = get_actual_values(budget_period, budget_selected_month if budget_period == "MTD" else budget_months)
 
@@ -1554,21 +1557,13 @@ elif budget_input_method == "Sync with Model":
     sync_col1, sync_col2, sync_col3 = st.columns([2, 2, 1])
     
     with sync_col1:
-        # Effective month picker
-        all_months = []
-        for year in range(2025, 2031):
-            for month in ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]:
-                all_months.append(f"{month} {year}")
-        
-        # Default to current month or closest available
-        current_month = datetime.now().strftime("%b %Y")
-        default_index = all_months.index(current_month) if current_month in all_months else 0
-        
-        effective_month = st.selectbox(
-            "Effective Month",
-            options=all_months,
-            index=default_index,
-            help="Budget will be updated from this month forward. Historical data remains unchanged."
+        # Sync scope picker
+        sync_scope_options = ["Current Period Only", "Current Year", "All Model Years"]
+        sync_scope = st.selectbox(
+            "Sync Scope",
+            options=sync_scope_options,
+            index=0,
+            help="Choose which periods to sync with model data"
         )
     
     with sync_col2:
@@ -1578,63 +1573,93 @@ elif budget_input_method == "Sync with Model":
         st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
         if st.button("🔄 Sync Budget", type="primary"):
             try:
-                # Get all months from the model
-                all_months = []
+                # Generate all model months (current model scope)
+                model_months = []
                 for year in range(2025, 2031):
                     for month in ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]:
-                        all_months.append(f"{month} {year}")
+                        model_months.append(f"{month} {year}")
                 
-                # Find the effective month index
-                effective_month_idx = all_months.index(effective_month) if effective_month in all_months else 0
+                # Determine which months to sync based on scope
+                months_to_sync = []
                 
-                # Sync budget for all months from effective date forward
-                months_to_sync = all_months[effective_month_idx:effective_month_idx + 3]  # Test with first 3 months
+                if sync_scope == "Current Period Only":
+                    if budget_period == "MTD":
+                        months_to_sync = [budget_selected_month]
+                    else:  # YTD
+                        # Get YTD months for selected year
+                        budget_month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+                        selected_month_name = budget_selected_month.split(" ")[0]
+                        month_index = budget_month_names.index(selected_month_name)
+                        months_to_sync = [f"{month} {budget_selected_year}" for month in budget_month_names[:month_index + 1]]
+                
+                elif sync_scope == "Current Year":
+                    # Sync all months in the selected budget year
+                    budget_month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+                    months_to_sync = [f"{month} {budget_selected_year}" for month in budget_month_names]
+                
+                elif sync_scope == "All Model Years":
+                    # Sync all model months
+                    months_to_sync = model_months
                 
                 synced_count = 0
+                skipped_count = 0
+                error_count = 0
                 
                 for month in months_to_sync:
-                    # Get or create budget for this month
-                    month_budget_key = f"{month}_budget"
-                    if month_budget_key not in st.session_state.model_data["budget_data"]["monthly_budgets"]:
-                        st.session_state.model_data["budget_data"]["monthly_budgets"][month_budget_key] = {}
+                    try:
+                        # Get or create budget for this month
+                        month_budget_key = f"{month}_budget"
+                        if month_budget_key not in st.session_state.model_data["budget_data"]["monthly_budgets"]:
+                            # Initialize with revenue categories
+                            st.session_state.model_data["budget_data"]["monthly_budgets"][month_budget_key] = {
+                                "subscription_revenue": 0,
+                                "transactional_revenue": 0,
+                                "implementation_revenue": 0,
+                                "maintenance_revenue": 0,
+                                "onboarding_revenue": 0,
+                            }
+                            
+                            # Add expense categories
+                            for category in expense_categories:
+                                category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
+                                st.session_state.model_data["budget_data"]["monthly_budgets"][month_budget_key][category_key] = 0
+                        
+                        # Get actual values from model data
+                        month_actuals = get_actual_values("MTD", month)
+                        
+                        # Check if there's actual data for this month
+                        total_actuals = sum(abs(v) for v in month_actuals.values() if isinstance(v, (int, float)))
+                        
+                        if total_actuals > 0:
+                            # Update budget with actual values
+                            for key, value in month_actuals.items():
+                                if key in st.session_state.model_data["budget_data"]["monthly_budgets"][month_budget_key]:
+                                    st.session_state.model_data["budget_data"]["monthly_budgets"][month_budget_key][key] = value
+                            synced_count += 1
+                        else:
+                            skipped_count += 1
                     
-                    # Get actual values using the exact same working function
-                    month_actuals = get_actual_values("MTD", month)
-                    
-                    # Calculate total actuals
-                    total_actuals = sum(v for v in month_actuals.values() if isinstance(v, (int, float)))
-                    
-                    if total_actuals > 0:
-                        # Update budget with actual values
-                        for key, value in month_actuals.items():
-                            st.session_state.model_data["budget_data"]["monthly_budgets"][month_budget_key][key] = value
-                        synced_count += 1
+                    except Exception as month_error:
+                        error_count += 1
+                        continue
                 
-                # Force update current budget being viewed
-                if budget_period == "MTD":
-                    current_viewing_month = budget_selected_month if budget_period == "MTD" else None
-                    
-                    if current_viewing_month and current_viewing_month in months_to_sync:
-                        # Update the current budget key with synced data
-                        current_actuals = get_actual_values("MTD", current_viewing_month)
-                        for key, value in current_actuals.items():
-                            st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key][key] = value
+                # Save the updated budget data
+                with open(data_file, 'w') as f:
+                    json.dump(st.session_state.model_data, f, indent=2)
                 
+                # Show results
                 if synced_count > 0:
-                    # Save the updated budget data to JSON file
-                    with open(data_file, 'w') as f:
-                        json.dump(st.session_state.model_data, f, indent=2)
-                    
-                    st.success(f"✅ Budget synced with actual data for {synced_count} months starting from {effective_month}")
+                    st.success(f"✅ Budget synced successfully!")
+                    st.info(f"📊 Synced: {synced_count} months | Skipped: {skipped_count} months | Errors: {error_count}")
+                elif skipped_count > 0:
+                    st.warning(f"⚠️ No data found for {skipped_count} months in the selected scope.")
                 else:
-                    st.warning("⚠️ No months were synced. This could mean there's no actual data for the selected period.")
+                    st.error(f"❌ Sync failed. Errors: {error_count}")
                 
                 st.rerun()
                 
             except Exception as e:
                 st.error(f"❌ Error syncing budget: {str(e)}")
-                import traceback
-                st.error(f"Full error: {traceback.format_exc()}")
     
 
     
