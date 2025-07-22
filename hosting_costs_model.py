@@ -1061,7 +1061,7 @@ with scale_col2:
 st.markdown("---")
 st.markdown('<div class="section-header">💾 Data Management</div>', unsafe_allow_html=True)
 
-col1, col2 = st.columns(2)
+col1, col2, col3, col4 = st.columns([1, 1, 1, 3])
 
 with col1:
     if st.button("💾 Save Data", type="primary", use_container_width=True):
@@ -1076,6 +1076,226 @@ with col2:
         st.session_state.model_data = load_data()
         st.success("✅ Data loaded successfully!")
         st.rerun()
+
+with col3:
+    # Create Excel export data
+    try:
+        import tempfile
+        import os
+        from datetime import datetime
+        
+        # Generate timestamp and filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"SHAED_Hosting_Costs_Analysis_{timestamp}.xlsx"
+        
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+            temp_path = tmp_file.name
+        
+        # Create Excel writer
+        with pd.ExcelWriter(temp_path, engine='openpyxl') as writer:
+            # === COST STRUCTURE DATA ===
+            cost_structure = st.session_state.model_data["hosting_costs_data"]["cost_structure"]
+            
+            # Flatten cost structure for Excel export
+            cost_structure_data = []
+            for category, services in cost_structure.items():
+                for service, costs in services.items():
+                    cost_structure_data.append({
+                        'Category': category,
+                        'Service': service,
+                        'Fixed Monthly Cost ($)': costs.get('fixed', 0),
+                        'Variable Cost per Customer ($)': costs.get('variable', 0)
+                    })
+            
+            if cost_structure_data:
+                structure_df = pd.DataFrame(cost_structure_data)
+                structure_df.to_excel(writer, sheet_name='Cost Structure', index=False)
+            
+            # === MONTHLY COST BREAKDOWN ===
+            monthly_costs, monthly_breakdown = calculate_total_hosting_costs()
+            capitalized_costs, expensed_costs = calculate_capitalized_vs_expensed()
+            
+            breakdown_data = []
+            for month in months:
+                subscribers = get_active_subscribers(month)
+                total_cost = monthly_costs.get(month, 0)
+                cap_cost = capitalized_costs.get(month, 0)
+                exp_cost = expensed_costs.get(month, 0)
+                
+                # Calculate fixed and per customer costs
+                total_fixed = sum(
+                    costs.get("fixed", 0)
+                    for category in cost_structure.values()
+                    for costs in category.values()
+                )
+                total_variable = sum(
+                    costs.get("variable", 0)
+                    for category in cost_structure.values()
+                    for costs in category.values()
+                )
+                
+                fixed_cost = total_fixed
+                per_customer_cost = total_variable * subscribers
+                
+                breakdown_data.append({
+                    'Month': month,
+                    'Active Customers': subscribers,
+                    'Fixed Cost ($)': fixed_cost,
+                    'Per Customer Cost ($)': per_customer_cost,
+                    'Total Cost ($)': total_cost,
+                    'Capitalized ($)': cap_cost,
+                    'Expensed COGS ($)': exp_cost,
+                    'Cost per Customer ($)': total_cost / subscribers if subscribers > 0 else 0
+                })
+            
+            if breakdown_data:
+                breakdown_df = pd.DataFrame(breakdown_data)
+                breakdown_df.to_excel(writer, sheet_name='Monthly Cost Breakdown', index=False)
+            
+            # === COST BY CATEGORY BREAKDOWN ===
+            category_breakdown_data = []
+            for month in months:
+                subscribers = get_active_subscribers(month)
+                row = {'Month': month, 'Active Customers': subscribers}
+                
+                for category, services in cost_structure.items():
+                    category_fixed = sum(costs.get("fixed", 0) for costs in services.values())
+                    category_variable = sum(costs.get("variable", 0) for costs in services.values())
+                    category_total = category_fixed + (category_variable * subscribers)
+                    row[f'{category} ($)'] = category_total
+                
+                category_breakdown_data.append(row)
+            
+            if category_breakdown_data:
+                category_df = pd.DataFrame(category_breakdown_data)
+                category_df.to_excel(writer, sheet_name='Cost by Category', index=False)
+            
+            # === MONTHLY OVERRIDES ===
+            monthly_overrides = st.session_state.model_data["hosting_costs_data"]["monthly_overrides"]
+            if any(override > 0 for override in monthly_overrides.values()):
+                overrides_data = [{'Month': month, 'Override Amount ($)': amount} 
+                                 for month, amount in monthly_overrides.items() if amount > 0]
+                if overrides_data:
+                    overrides_df = pd.DataFrame(overrides_data)
+                    overrides_df.to_excel(writer, sheet_name='Monthly Overrides', index=False)
+            
+            # === ANNUAL SUMMARY ===
+            years_dict = group_months_by_year(months)
+            annual_summary = []
+            
+            for year in sorted(years_dict.keys()):
+                year_months = years_dict[year]
+                
+                year_total = sum(monthly_costs.get(month, 0) for month in year_months)
+                year_cap = sum(capitalized_costs.get(month, 0) for month in year_months)
+                year_exp = sum(expensed_costs.get(month, 0) for month in year_months)
+                
+                # Average customers
+                avg_customers = sum(get_active_subscribers(month) for month in year_months) / len(year_months)
+                
+                annual_summary.append({
+                    'Year': year,
+                    'Total Hosting Cost ($)': year_total,
+                    'Capitalized ($)': year_cap,
+                    'Expensed COGS ($)': year_exp,
+                    'Average Customers': avg_customers,
+                    'Average Monthly Cost ($)': year_total / 12,
+                    'Average Cost per Customer ($)': year_total / (avg_customers * 12) if avg_customers > 0 else 0
+                })
+            
+            if annual_summary:
+                summary_df = pd.DataFrame(annual_summary)
+                summary_df.to_excel(writer, sheet_name='Annual Summary', index=False)
+            
+            # === SCALING ANALYSIS DATA ===
+            total_fixed = sum(
+                costs.get("fixed", 0)
+                for category in cost_structure.values()
+                for costs in category.values()
+            )
+            total_variable = sum(
+                costs.get("variable", 0)
+                for category in cost_structure.values()
+                for costs in category.values()
+            )
+            
+            customer_levels = [0, 100, 500, 1000, 2500, 5000, 10000, 25000, 50000]
+            scaling_data = []
+            
+            for customers in customer_levels:
+                total_cost = total_fixed + (total_variable * customers)
+                cost_per_customer = total_cost / customers if customers > 0 else 0
+                
+                scaling_data.append({
+                    'Customer Count': customers,
+                    'Total Monthly Cost ($)': total_cost,
+                    'Cost per Customer ($)': cost_per_customer,
+                    'Fixed Component ($)': total_fixed,
+                    'Variable Component ($)': total_variable * customers
+                })
+            
+            if scaling_data:
+                scaling_df = pd.DataFrame(scaling_data)
+                scaling_df.to_excel(writer, sheet_name='Customer Scaling Analysis', index=False)
+            
+            # === GO-LIVE SETTINGS ===
+            go_live_settings = st.session_state.model_data["hosting_costs_data"]["go_live_settings"]
+            settings_data = [{
+                'Setting': 'Go-Live Month',
+                'Value': go_live_settings.get('go_live_month', 'Jan 2025')
+            }, {
+                'Setting': 'Capitalize Before Go-Live',
+                'Value': go_live_settings.get('capitalize_before_go_live', True)
+            }]
+            
+            settings_df = pd.DataFrame(settings_data)
+            settings_df.to_excel(writer, sheet_name='Go-Live Settings', index=False)
+            
+            # === CHART DATA ===
+            # Yearly cost projection data
+            yearly_data = []
+            for year in sorted(years_dict.keys()):
+                year_total = sum(monthly_costs.get(month, 0) for month in years_dict[year])
+                year_cap = sum(capitalized_costs.get(month, 0) for month in years_dict[year])
+                year_exp = sum(expensed_costs.get(month, 0) for month in years_dict[year])
+                
+                yearly_data.append({
+                    'Year': year,
+                    'Total Cost ($)': year_total,
+                    'Capitalized ($)': year_cap,
+                    'Expensed ($)': year_exp
+                })
+            
+            if yearly_data:
+                chart_df = pd.DataFrame(yearly_data)
+                chart_df.to_excel(writer, sheet_name='Cost Projection Chart Data', index=False)
+        
+        # Read the file data for download
+        with open(temp_path, 'rb') as f:
+            excel_data = f.read()
+        
+        # Clean up temp file
+        os.unlink(temp_path)
+        
+        # Direct download button that triggers immediately
+        st.download_button(
+            label="📊 Export Excel",
+            data=excel_data,
+            file_name=filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            use_container_width=True
+        )
+        
+    except ImportError:
+        # Fallback button if openpyxl not available
+        if st.button("📊 Export Excel", type="primary", use_container_width=True):
+            st.error("❌ Excel export requires openpyxl. Please install: pip install openpyxl")
+    except Exception as e:
+        # Fallback button if there's an error
+        if st.button("📊 Export Excel", type="primary", use_container_width=True):
+            st.error(f"❌ Error creating Excel file: {str(e)}")
 
 # Footer
 st.markdown("---")

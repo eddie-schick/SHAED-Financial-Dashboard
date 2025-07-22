@@ -1718,13 +1718,8 @@ with col3:
             if "gross_profit_data" in st.session_state.model_data and "saas_hosting_structure" in st.session_state.model_data["gross_profit_data"]:
                 hosting_structure = st.session_state.model_data["gross_profit_data"]["saas_hosting_structure"]
                 
+                # Export go-live settings
                 settings_df = pd.DataFrame([{
-                    'Setting': 'Fixed Monthly Cost ($)',
-                    'Value': hosting_structure.get('fixed_monthly_cost', 0)
-                }, {
-                    'Setting': 'Cost Per Customer ($)',
-                    'Value': hosting_structure.get('cost_per_customer', 0)
-                }, {
                     'Setting': 'Go-Live Month',
                     'Value': hosting_structure.get('go_live_month', 'Jan 2025')
                 }, {
@@ -1733,6 +1728,24 @@ with col3:
                 }])
                 
                 settings_df.to_excel(writer, sheet_name='Hosting Structure Settings', index=False)
+                
+                # Export monthly fixed costs
+                monthly_fixed_costs = hosting_structure.get('monthly_fixed_costs', {})
+                if monthly_fixed_costs:
+                    fixed_df = pd.DataFrame([monthly_fixed_costs])
+                    fixed_df = fixed_df.T
+                    fixed_df.columns = ['Fixed Cost ($)']
+                    fixed_df.index.name = 'Month'
+                    fixed_df.to_excel(writer, sheet_name='Monthly Fixed Costs')
+                
+                # Export monthly variable costs
+                monthly_variable_costs = hosting_structure.get('monthly_variable_costs', {})
+                if monthly_variable_costs:
+                    variable_df = pd.DataFrame([monthly_variable_costs])
+                    variable_df = variable_df.T
+                    variable_df.columns = ['Variable Cost per Customer ($)']
+                    variable_df.index.name = 'Month'
+                    variable_df.to_excel(writer, sheet_name='Monthly Variable Costs')
             
             # === ANNUAL SUMMARY ===
             years_dict = group_months_by_year(months)
