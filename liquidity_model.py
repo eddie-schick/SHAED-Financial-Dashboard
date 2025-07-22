@@ -1,9 +1,8 @@
 import streamlit as st
 import pandas as pd
-import json
-import os
 from datetime import datetime, date
 import plotly.graph_objects as go
+from database import load_data, save_data
 
 # Payroll integration functions
 def is_employee_active_for_month(emp_data, month_str):
@@ -728,36 +727,15 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Data persistence functions
-def save_data(data: dict, filename: str = "financial_model_data.json"):
-    """Save data to JSON file"""
-    try:
-        with open(filename, 'w') as f:
-            json.dump(data, f, indent=2, default=str)
-        return True
-    except Exception as e:
-        st.error(f"Error saving data: {e}")
-        return False
+# Basic data persistence functions are imported from database.py
+# Keeping load_data_from_month for liquidity-specific functionality
 
-def load_data(filename: str = "financial_model_data.json") -> dict:
-    """Load data from JSON file"""
+def load_data_from_month(effective_month=None) -> dict:
+    """Load data from database, preserving historical expenses before effective month"""
     try:
-        if os.path.exists(filename):
-            with open(filename, 'r') as f:
-                return json.load(f)
-        return {}
-    except Exception as e:
-        st.error(f"Error loading data: {e}")
-        return {}
-
-def load_data_from_month(effective_month=None, filename: str = "financial_model_data.json") -> dict:
-    """Load data from JSON file, preserving historical expenses before effective month"""
-    try:
-        if not os.path.exists(filename):
+        new_data = load_data()
+        if not new_data:
             return {}
-        
-        with open(filename, 'r') as f:
-            new_data = json.load(f)
         
         # If no effective month specified, load everything
         if not effective_month:

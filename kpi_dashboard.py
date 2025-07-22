@@ -1,12 +1,11 @@
 import streamlit as st
 import pandas as pd
-import json
-import os
 from datetime import datetime, date
 import calendar
 import plotly.graph_objects as go
 import plotly.express as px
 from typing import Any
+from database import load_data, save_data
 
 # Configure page
 st.set_page_config(
@@ -237,15 +236,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
 if 'model_data' not in st.session_state:
-    st.session_state.model_data = {}
-
-# Load data
-data_file = 'financial_model_data.json'
-if os.path.exists(data_file):
-    with open(data_file, 'r') as f:
-        st.session_state.model_data = json.load(f)
+    st.session_state.model_data = load_data()
 
 # Header
 st.markdown("""
@@ -1643,9 +1635,8 @@ elif budget_input_method == "Sync with Model":
                                 st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key][key] = value
                 
                 if synced_count > 0:
-                    # Save the updated budget data to JSON file
-                    with open(data_file, 'w') as f:
-                        json.dump(st.session_state.model_data, f, indent=2)
+                    # Save the updated budget data
+                    save_data(st.session_state.model_data)
                     
                     st.success(f"✅ Budget synced with actual data for {synced_count} months starting from {effective_month}")
                     st.info(f"📝 You can now manually edit budget data for any month/year from the Budget Year/Month dropdowns above.")
@@ -2115,25 +2106,16 @@ col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
 
 with col1:
     if st.button("💾 Save Data", type="primary", use_container_width=True):
-        try:
-            with open(data_file, 'w') as f:
-                json.dump(st.session_state.model_data, f, indent=2)
+        if save_data(st.session_state.model_data):
             st.success("✅ All data saved successfully!")
-        except Exception as e:
-            st.error(f"❌ Error saving data: {str(e)}")
+        else:
+            st.error("❌ Error saving data")
 
 with col2:
     if st.button("📂 Load Data", type="primary", use_container_width=True):
-        try:
-            if os.path.exists(data_file):
-                with open(data_file, 'r') as f:
-                    st.session_state.model_data = json.load(f)
-                st.success("✅ Data loaded successfully!")
-                st.rerun()
-            else:
-                st.warning("⚠️ No saved data file found.")
-        except Exception as e:
-            st.error(f"❌ Error loading data: {str(e)}")
+        st.session_state.model_data = load_data()
+        st.success("✅ Data loaded successfully!")
+        st.rerun()
 
 with col3:
     # Create Excel export data

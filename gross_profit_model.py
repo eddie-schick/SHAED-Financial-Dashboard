@@ -1,9 +1,8 @@
 import streamlit as st
 import pandas as pd
-import json
-import os
 from datetime import datetime, date
 import plotly.graph_objects as go
+from database import load_data, save_data
 
 # Configure page
 st.set_page_config(
@@ -340,29 +339,8 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Data handling functions
-def save_data(data: dict, filename: str = "financial_model_data.json") -> bool:
-    """Save data to JSON file"""
-    try:
-        with open(filename, 'w') as f:
-            json.dump(data, f, indent=2, default=str)
-        return True
-    except Exception as e:
-        st.error(f"Error saving data: {e}")
-        return False
+# Data handling functions are now imported from database.py
 
-def load_data(filename: str = "financial_model_data.json") -> dict:
-    """Load data from JSON file"""
-    try:
-        if os.path.exists(filename):
-            with open(filename, 'r') as f:
-                return json.load(f)
-        return {}
-    except Exception as e:
-        st.error(f"Error loading data: {e}")
-        return {}
-
-# Initialize session state
 if 'model_data' not in st.session_state:
     st.session_state.model_data = load_data()
 
