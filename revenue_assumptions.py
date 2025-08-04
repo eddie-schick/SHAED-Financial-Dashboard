@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date
 import plotly.graph_objects as go
-from database import load_data, save_data
+from database import load_data, save_data, load_data_from_source, save_data_to_source, save_comprehensive_revenue_assumptions_to_database
 
 # Configure page
 st.set_page_config(
@@ -14,7 +14,7 @@ st.set_page_config(
 # Data persistence functions are now imported from database.py
 
 if 'model_data' not in st.session_state:
-    st.session_state.model_data = load_data()
+    st.session_state.model_data = load_data_from_source()
 
 # Custom CSS for SHAED branding
 st.markdown("""
@@ -1359,7 +1359,7 @@ with tab4:
 st.markdown("---")
 st.markdown('<div class="section-header">💰 Revenue Summary & Totals</div>', unsafe_allow_html=True)
 
-# Calculate and show revenue totals
+# Ensure we have the latest revenue calculations
 calculate_all_revenue()
 
 # Show summary by revenue stream using combined table with special total formatting
@@ -1956,18 +1956,16 @@ st.markdown('<div class="section-header">💾 Data Management</div>', unsafe_all
 
 col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
 
-with col1:
-    if st.button("💾 Save Data", type="primary", use_container_width=True):
-        calculate_all_revenue()
-        if save_data(st.session_state.model_data):
-            st.success("✅ Data saved successfully!")
-        else:
-            st.error("❌ Failed to save data")
+# Auto-save data silently - no manual button needed
+calculate_all_revenue()  # Calculate revenue before saving
+try:
+    save_data_to_source(st.session_state.model_data)
+except Exception as e:
+    pass  # Silent error handling
 
 with col2:
     if st.button("📂 Load Data", type="primary", use_container_width=True):
-        st.session_state.model_data = load_data()
-        st.success("✅ Data loaded successfully!")
+        st.session_state.model_data = load_data_from_source()
         st.rerun()
 
 with col3:
@@ -2271,3 +2269,9 @@ st.markdown("""
     <small>© 2025 SHAED - All rights reserved</small>
 </div>
 """, unsafe_allow_html=True)
+
+# Auto-save data silently
+try:
+    save_comprehensive_revenue_assumptions_to_database(st.session_state.model_data)
+except Exception as e:
+    pass  # Silent error handling

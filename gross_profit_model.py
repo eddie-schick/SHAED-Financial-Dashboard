@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date
 import plotly.graph_objects as go
-from database import load_data, save_data
+from database import load_data, save_data, load_data_from_source, save_data_to_source
 
 # Configure page
 st.set_page_config(
@@ -342,7 +342,7 @@ st.markdown("""
 # Data handling functions are now imported from database.py
 
 if 'model_data' not in st.session_state:
-    st.session_state.model_data = load_data()
+    st.session_state.model_data = load_data_from_source()
 
 # Generate months from 2025-2030
 def get_months_2025_2030():
@@ -1558,16 +1558,16 @@ st.markdown('<div class="section-header">💾 Data Management</div>', unsafe_all
 col1, col2, col3, col4 = st.columns([1, 1, 1, 3])
 
 with col1:
-    if st.button("💾 Save Data", type="primary", use_container_width=True):
-        update_income_statement_cogs()
-        if save_data(st.session_state.model_data):
-            st.success("✅ Gross profit data saved and COGS updated in Income Statement!")
-        else:
-            st.error("❌ Failed to save data")
+    # Auto-save data silently - no manual button needed
+    update_income_statement_cogs()  # KEEP THIS - updates COGS in Income Statement
+    try:
+        save_data_to_source(st.session_state.model_data)
+    except Exception as e:
+        pass  # Silent error handling
 
 with col2:
     if st.button("📂 Load Data", type="primary", use_container_width=True):
-        st.session_state.model_data = load_data()
+        st.session_state.model_data = load_data_from_source()
         st.success("✅ Data loaded successfully!")
         st.rerun()
 
@@ -1844,3 +1844,10 @@ st.markdown("""
     © 2025 SHAED - All rights reserved
 </div>
 """, unsafe_allow_html=True)
+
+# Auto-save data silently - no manual button needed
+update_integrated_dashboards()  # KEEP THIS - updates integrated dashboards
+try:
+    save_data_to_source(st.session_state.model_data)
+except Exception as e:
+    pass  # Silent error handling

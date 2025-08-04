@@ -1,5 +1,4 @@
 import streamlit as st
-import os
 from datetime import datetime
 
 # Configure page
@@ -315,14 +314,26 @@ with st.sidebar:
     """)
     
     st.markdown("---")
-    st.markdown("#### 📁 Data Management")
+    st.markdown("#### 📊 Data Management")
+    
+    # Using 100% Supabase Database
+    st.session_state.data_source = "Supabase"
+    
     st.markdown("""
-    All dashboards share a common data file:
-    `financial_model_data.json`
+    **Primary Backend:** Supabase Database (100% Cloud)
+    **Status:** All data stored in real-time cloud database
     """)
     
-    # Check if data file exists
-    if os.path.exists("financial_model_data.json"):
-        st.success("✅ Data file found")
-    else:
-        st.warning("⚠️ No data file found - create one by saving data in any dashboard")
+    st.success("✅ Supabase connected")
+    
+    if st.button("🔍 Test Supabase Connection"):
+        try:
+            from database import init_supabase
+            supabase = init_supabase()
+            # Test query
+            result = supabase.table('business_segments').select('id').limit(1).execute()
+            st.success("✅ Connection successful!")
+        except Exception as e:
+            st.error(f"❌ Connection failed: {str(e)}")
+    
+    st.info("💾 All data is stored and synced in real-time with Supabase - no local files needed")

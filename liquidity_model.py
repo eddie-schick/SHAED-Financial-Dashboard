@@ -2,9 +2,72 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date
 import plotly.graph_objects as go
-from database import load_data, save_data
+from database import load_data, save_data, load_data_from_source, save_data_to_source, init_supabase, save_liquidity_data_to_database
 
 # Payroll integration functions
+
+def load_sga_categories_from_database():
+    """Load SG&A expense categories from the expense_categories table"""
+    try:
+        supabase = init_supabase()
+        response = supabase.table('expense_categories').select('*').eq('category_type', 'sga').order('id').execute()
+        
+        categories = {}
+        for row in response.data:
+            categories[row['category_name']] = {
+                'classification': row.get('category_type', 'sga').title(),
+                'editable': row['category_name'] != 'Payroll'  # Payroll is not editable (syncs with headcount)
+            }
+        return categories
+    except Exception as e:
+        st.error(f"Error loading categories from database: {e}")
+        # Fallback to default categories
+        return get_default_sga_categories()
+
+def get_default_sga_categories():
+    """Get the default SG&A categories as fallback"""
+    return {
+        "Payroll": {"classification": "Personnel", "editable": False},
+        "Contractors": {"classification": "Personnel", "editable": True},
+        "License Fees": {"classification": "Opex", "editable": True},
+        "Travel": {"classification": "Opex", "editable": True},
+        "Shows": {"classification": "Sales and Marketing", "editable": True},
+        "Associations": {"classification": "Sales and Marketing", "editable": True},
+        "Marketing": {"classification": "Sales and Marketing", "editable": True},
+        "Company Vehicle": {"classification": "Opex", "editable": True},
+        "Grant Writer": {"classification": "Personnel", "editable": True},
+        "Insurance": {"classification": "Opex", "editable": True},
+        "Legal / Professional Fees": {"classification": "Opex", "editable": True},
+        "Permitting/Fees/Licensing": {"classification": "Opex", "editable": True},
+        "Shared Services": {"classification": "Opex", "editable": True},
+        "Consultants/Audit/Tax": {"classification": "Opex", "editable": True},
+        "Pritchard Amex": {"classification": "Opex", "editable": True},
+        "Contingencies": {"classification": "Opex", "editable": True}
+    }
+
+def sync_category_to_database(category_name, action="add", classification="Opex"):
+    """Sync category changes to the expense_categories table"""
+    try:
+        supabase = init_supabase()
+        
+        if action == "add":
+            # Add new category to database
+            supabase.table('expense_categories').insert({
+                'category_name': category_name,
+                'category_type': 'sga',
+                'description': f'SG&A expense category: {category_name}'
+            }).execute()
+            st.success(f"✅ Added '{category_name}' to database")
+            
+        elif action == "delete":
+            # Delete category from database
+            supabase.table('expense_categories').delete().eq('category_name', category_name).eq('category_type', 'sga').execute()
+            st.success(f"✅ Removed '{category_name}' from database")
+            
+        return True
+    except Exception as e:
+        st.error(f"Error syncing category to database: {e}")
+        return False
 def is_employee_active_for_month(emp_data, month_str):
     """Check if employee is active for a specific month"""
     try:
@@ -133,11 +196,11 @@ def calculate_total_personnel_costs():
     payroll_by_dept, base_payroll = get_calculated_payroll_from_headcount()
     contractor_costs = calculate_monthly_contractor_costs()
     
-    # Get configuration for payroll tax rate
-    payroll_tax_rate = 0.23  # Default 23%
+    # Get configuration for payroll tax rate - load from database first
+    payroll_tax_rate = 0.10  # Default 10% instead of 23%
     if "payroll_data" in st.session_state.model_data:
         config = st.session_state.model_data["payroll_data"].get("payroll_config", {})
-        payroll_tax_rate = config.get("payroll_tax_percentage", 23.0) / 100.0
+        payroll_tax_rate = config.get("payroll_tax_percentage", 10.0) / 100.0  # Changed default from 23.0 to 10.0
     
     # Calculate bonuses from employee bonus data (same as payroll model)
     bonuses = {month: 0 for month in months}
@@ -766,6 +829,9 @@ def load_data_from_month(effective_month=None) -> dict:
                 # Update only from effective month forward
                 for i, month in enumerate(months):
                     if i >= effective_index:
+                        # Ensure category exists in expenses dictionary
+                        if category not in current_data["liquidity_data"]["expenses"]:
+                            current_data["liquidity_data"]["expenses"][category] = {month: 0 for month in months}
                         current_data["liquidity_data"]["expenses"][category][month] = monthly_data.get(month, 0)
         
         # Update all other data (revenue, cash flow, etc.) completely
@@ -788,7 +854,7 @@ def load_data_from_month(effective_month=None) -> dict:
 
 # Initialize session state
 if 'model_data' not in st.session_state:
-    st.session_state.model_data = load_data()
+    st.session_state.model_data = load_data_from_source()
 
 # Generate months from 2025-2030
 def get_months_2025_2030():
@@ -837,36 +903,13 @@ def group_months_by_year(months):
 
 # Initialize liquidity data structure
 def initialize_liquidity_data():
-    """Initialize the liquidity data structure with default expense categories"""
+    """Initialize the liquidity data structure with expense categories from database"""
     
-    # Default expense categories based on the template (in correct order)
-    default_categories = {
-        # Personnel (combined into one line item)
-        "Payroll": {"classification": "Personnel", "editable": False},
-        "Contractors": {"classification": "Personnel", "editable": True},
-        
-        # License Fees (from Product Development tab - placeholder for now)
-        "License Fees": {"classification": "Product Development", "editable": False},
-        
-        # Travel and Shows (right after License Fees)
-        "Travel": {"classification": "Sales and Marketing", "editable": True},
-        "Shows": {"classification": "Sales and Marketing", "editable": True},
-        
-        # Sales and Marketing (continued)
-        "Associations": {"classification": "Sales and Marketing", "editable": True},
-        "Marketing": {"classification": "Sales and Marketing", "editable": True},
-        
-        # Operations
-        "Company Vehicle": {"classification": "Opex", "editable": True},
-        "Grant Writer": {"classification": "Opex", "editable": True},
-        "Insurance": {"classification": "Opex", "editable": True},
-        "Legal / Professional Fees": {"classification": "Opex", "editable": True},
-        "Permitting/Fees/Licensing": {"classification": "Opex", "editable": True},
-        "Shared Services": {"classification": "Opex", "editable": True},
-        "Consultants/Audit/Tax": {"classification": "Opex", "editable": True},
-        "Pritchard AMEX": {"classification": "Opex", "editable": True},
-        "Contingencies": {"classification": "Opex", "editable": True},
-    }
+    # Load SG&A expense categories from database
+    database_categories = load_sga_categories_from_database()
+    
+    # Use database categories as default, with fallback to hardcoded if database fails
+    default_categories = database_categories if database_categories else get_default_sga_categories()
     
     # Initialize liquidity data if not exists
     if "liquidity_data" not in st.session_state.model_data:
@@ -947,15 +990,15 @@ def initialize_liquidity_data():
         if "Travel Shows" in st.session_state.model_data["liquidity_data"]["expenses"]:
             del st.session_state.model_data["liquidity_data"]["expenses"]["Travel Shows"]
     
-    # Migration: Rename "Travel Slush" to "Pritchard AMEX" if it exists
+            # Migration: Rename "Travel Slush" to "Pritchard Amex" if it exists
     if "Travel Slush" in st.session_state.model_data["liquidity_data"]["expense_categories"]:
         # Get existing Travel Slush data
         travel_slush_category = st.session_state.model_data["liquidity_data"]["expense_categories"]["Travel Slush"]
         travel_slush_data = st.session_state.model_data["liquidity_data"]["expenses"].get("Travel Slush", {})
         
-        # Add new category with same data
-        st.session_state.model_data["liquidity_data"]["expense_categories"]["Pritchard AMEX"] = travel_slush_category
-        st.session_state.model_data["liquidity_data"]["expenses"]["Pritchard AMEX"] = travel_slush_data
+                # Add new category with same data
+        st.session_state.model_data["liquidity_data"]["expense_categories"]["Pritchard Amex"] = travel_slush_category
+        st.session_state.model_data["liquidity_data"]["expenses"]["Pritchard Amex"] = travel_slush_data
         
         # Remove old category
         del st.session_state.model_data["liquidity_data"]["expense_categories"]["Travel Slush"]
@@ -996,6 +1039,8 @@ def initialize_liquidity_data():
         if "Total Personnel Costs" in st.session_state.model_data["liquidity_data"]["expenses"]:
             st.session_state.model_data["liquidity_data"]["expenses"]["Payroll"] = st.session_state.model_data["liquidity_data"]["expenses"]["Total Personnel Costs"]
             del st.session_state.model_data["liquidity_data"]["expenses"]["Total Personnel Costs"]
+        else:
+            st.session_state.model_data["liquidity_data"]["expenses"]["Payroll"] = {month: 0 for month in months}
         
         # Update category order
         if "category_order" in st.session_state.model_data["liquidity_data"]:
@@ -1125,6 +1170,9 @@ def create_expense_table_with_years(categories, show_monthly=True):
                     if month in edited_df.columns:
                         value = edited_df.iloc[i][month]
                         # Convert to positive for storage (expenses are stored as positive, displayed as negative)
+                        # Ensure category exists in expenses dictionary
+                        if category not in st.session_state.model_data["liquidity_data"]["expenses"]:
+                            st.session_state.model_data["liquidity_data"]["expenses"][category] = {month: 0 for month in months}
                         st.session_state.model_data["liquidity_data"]["expenses"][category][month] = abs(float(value)) if value != 0 else 0
     
     return edited_df
@@ -1268,7 +1316,7 @@ def update_sga_expenses():
         "Permitting/Fees/Licensing": "Permitting/Fees/Licensing",
         "Shared Services": "Shared Services",
         "Consultants/Audit/Tax": "Consultants/Audit/Tax",
-        "Pritchard AMEX": "Pritchard AMEX",
+        "Pritchard Amex": "Pritchard Amex",
         "Contingencies": "Contingencies",
     }
     
@@ -1583,9 +1631,9 @@ with st.expander("💵 Cash Receipts", expanded=False):
     with balance_col1:
         starting_balance = st.number_input(
             "Starting Cash Balance (12/31/24):",
-            value=st.session_state.model_data["liquidity_data"]["starting_balance"],
-            step=1000,
-            format="%d",
+            value=float(st.session_state.model_data["liquidity_data"]["starting_balance"]),
+            step=1000.0,
+            format="%.0f",
             key="starting_balance_input"
         )
         st.session_state.model_data["liquidity_data"]["starting_balance"] = starting_balance
@@ -1676,6 +1724,8 @@ with st.expander("💵 Cash Receipts", expanded=False):
 
 # CASH DISBURSEMENTS SECTION - COLLAPSIBLE
 with st.expander("💸 Cash Disbursements", expanded=False):
+    st.markdown("---")
+    
     # Expense Management Dropdown
     mgmt_col1, mgmt_col2, mgmt_col3, mgmt_col4 = st.columns([0.75, 1.083, 1.083, 1.083])
 
@@ -1706,21 +1756,25 @@ with st.expander("💸 Cash Disbursements", expanded=False):
                 elif new_category in st.session_state.model_data["liquidity_data"]["expense_categories"]:
                     st.error(f"Category '{new_category}' already exists!")
                 else:
-                    # Add new category
-                    st.session_state.model_data["liquidity_data"]["expense_categories"][new_category] = {
-                        "classification": classification, 
-                        "editable": True
-                    }
-                    # Initialize data for new category
-                    st.session_state.model_data["liquidity_data"]["expenses"][new_category] = {month: 0 for month in months}
-                    
-                    # Add to category_order list so it shows up in the table
-                    if "category_order" not in st.session_state.model_data["liquidity_data"]:
-                        st.session_state.model_data["liquidity_data"]["category_order"] = []
-                    st.session_state.model_data["liquidity_data"]["category_order"].append(new_category)
-                    
-                    st.success(f"Added '{new_category}' to {classification}")
-                    st.rerun()
+                    # Sync to database first
+                    if sync_category_to_database(new_category, action="add", classification=classification):
+                        # Add new category to session data
+                        st.session_state.model_data["liquidity_data"]["expense_categories"][new_category] = {
+                            "classification": classification, 
+                            "editable": True
+                        }
+                        # Initialize data for new category
+                        st.session_state.model_data["liquidity_data"]["expenses"][new_category] = {month: 0 for month in months}
+                        
+                        # Add to category_order list so it shows up in the table
+                        if "category_order" not in st.session_state.model_data["liquidity_data"]:
+                            st.session_state.model_data["liquidity_data"]["category_order"] = []
+                        st.session_state.model_data["liquidity_data"]["category_order"].append(new_category)
+                        
+                        st.success(f"Added '{new_category}' to {classification} and synced to database")
+                        st.rerun()
+                    else:
+                        st.error("Failed to add category to database")
 
     elif management_action == "Delete Expense Category":
         delete_col1, delete_col2, delete_col3, delete_col4 = st.columns([0.75, 1.083, 1.083, 1.083])
@@ -1746,17 +1800,21 @@ with st.expander("💸 Cash Disbursements", expanded=False):
                     st.session_state.confirm_delete = category_to_delete
                     st.warning(f"⚠️ Are you sure you want to delete '{category_to_delete}'? This will remove all data for this category.")
                 else:
-                    # Delete the category
-                    if category_to_delete in st.session_state.model_data["liquidity_data"]["expense_categories"]:
-                        del st.session_state.model_data["liquidity_data"]["expense_categories"][category_to_delete]
-                    if category_to_delete in st.session_state.model_data["liquidity_data"]["expenses"]:
-                        del st.session_state.model_data["liquidity_data"]["expenses"][category_to_delete]
-                    # Remove from category_order list
-                    if "category_order" in st.session_state.model_data["liquidity_data"] and category_to_delete in st.session_state.model_data["liquidity_data"]["category_order"]:
-                        st.session_state.model_data["liquidity_data"]["category_order"].remove(category_to_delete)
-                    st.success(f"Deleted '{category_to_delete}' successfully!")
-                    st.session_state.confirm_delete = None
-                    st.rerun()
+                    # Sync to database first
+                    if sync_category_to_database(category_to_delete, action="delete"):
+                        # Delete the category from session data
+                        if category_to_delete in st.session_state.model_data["liquidity_data"]["expense_categories"]:
+                            del st.session_state.model_data["liquidity_data"]["expense_categories"][category_to_delete]
+                        if category_to_delete in st.session_state.model_data["liquidity_data"]["expenses"]:
+                            del st.session_state.model_data["liquidity_data"]["expenses"][category_to_delete]
+                        # Remove from category_order list
+                        if "category_order" in st.session_state.model_data["liquidity_data"] and category_to_delete in st.session_state.model_data["liquidity_data"]["category_order"]:
+                            st.session_state.model_data["liquidity_data"]["category_order"].remove(category_to_delete)
+                        st.success(f"Deleted '{category_to_delete}' successfully and synced to database!")
+                        st.session_state.confirm_delete = None
+                        st.rerun()
+                    else:
+                        st.error("Failed to delete category from database")
 
         # Confirm delete button
         if st.session_state.get("confirm_delete"):
@@ -1764,15 +1822,19 @@ with st.expander("💸 Cash Disbursements", expanded=False):
             with confirm_col2:
                 if st.button(f"✅ Confirm Delete '{st.session_state.confirm_delete}'", type="secondary"):
                     category_to_delete = st.session_state.confirm_delete
-                    # Delete the category
-                    if category_to_delete in st.session_state.model_data["liquidity_data"]["expense_categories"]:
-                        del st.session_state.model_data["liquidity_data"]["expense_categories"][category_to_delete]
-                    if category_to_delete in st.session_state.model_data["liquidity_data"]["expenses"]:
-                        del st.session_state.model_data["liquidity_data"]["expenses"][category_to_delete]
-                    # Remove from category_order list
-                    if "category_order" in st.session_state.model_data["liquidity_data"] and category_to_delete in st.session_state.model_data["liquidity_data"]["category_order"]:
-                        st.session_state.model_data["liquidity_data"]["category_order"].remove(category_to_delete)
-                    st.success(f"Deleted '{category_to_delete}' successfully!")
+                    # Sync to database first
+                    if sync_category_to_database(category_to_delete, action="delete"):
+                        # Delete the category from session data
+                        if category_to_delete in st.session_state.model_data["liquidity_data"]["expense_categories"]:
+                            del st.session_state.model_data["liquidity_data"]["expense_categories"][category_to_delete]
+                        if category_to_delete in st.session_state.model_data["liquidity_data"]["expenses"]:
+                            del st.session_state.model_data["liquidity_data"]["expenses"][category_to_delete]
+                        # Remove from category_order list
+                        if "category_order" in st.session_state.model_data["liquidity_data"] and category_to_delete in st.session_state.model_data["liquidity_data"]["category_order"]:
+                            st.session_state.model_data["liquidity_data"]["category_order"].remove(category_to_delete)
+                        st.success(f"Deleted '{category_to_delete}' successfully and synced to database!")
+                    else:
+                        st.error("Failed to delete category from database")
                     st.session_state.confirm_delete = None
                     st.rerun()
 
@@ -2437,18 +2499,18 @@ for year in range(current_year, current_year + 3):
 data_col1, data_col2, data_col3, data_col4, data_col5, data_col6 = st.columns([1, 1, 1, 1, 0.75, 1.25])
 
 with data_col1:
-    if st.button("💾 Save Data", type="primary", use_container_width=True):
-        update_sga_expenses()  # Update SG&A before saving
-        if save_data(st.session_state.model_data):
-            st.success("Liquidity data saved and SG&A updated!")
-        else:
-            st.error("Failed to save data")
+    # Auto-save data silently - no manual button needed
+    update_sga_expenses()  # Update SG&A before saving (KEEP THIS!)
+    try:
+        save_data_to_source(st.session_state.model_data)
+    except Exception as e:
+        pass  # Silent error handling
 
 with data_col2:
     if st.button("📂 Load Data", type="secondary", use_container_width=True):
         load_effective_month = st.session_state.get("load_effective_month", "All Data (Replace Everything)")
         if load_effective_month == "All Data (Replace Everything)":
-            st.session_state.model_data = load_data()
+            st.session_state.model_data = load_data_from_source()
             load_message = "All data loaded successfully!"
             initialize_liquidity_data()
         else:

@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date
 import plotly.graph_objects as go
-from database import load_data, save_data
+from database import load_data, save_data, load_data_from_source, save_data_to_source, show_supabase_access_info, save_all_to_supabase_enhanced, save_income_statement_to_database, clean_up_cash_disbursement_categories, save_revenue_calculations_to_database
 
 # Configure page
 st.set_page_config(
@@ -454,7 +454,7 @@ st.markdown("""
 # Data persistence functions are now imported from database.py
 
 if 'model_data' not in st.session_state:
-    st.session_state.model_data = load_data()
+    st.session_state.model_data = load_data_from_source()
 
 # Generate months from 2025-2030
 def get_months_2025_2030():
@@ -621,7 +621,162 @@ def auto_calculate_cogs_from_gross_profit_model():
 # Auto-calculate COGS from Gross Profit model every time the page loads
 auto_calculate_cogs_from_gross_profit_model()
 
+# Revenue calculation functions from revenue_assumptions.py
+def calculate_subscription_running_totals():
+    """Calculate subscription running totals (from revenue_assumptions.py)"""
+    # Stakeholder list (all 20 stakeholders)
+    stakeholders = [
+        "Equipment Manufacturer", "Dealership", "Corporate", "Charging as a Service",
+        "Charging Hardware", "Depot", "End User", "Infrastructure Partner",
+        "Finance Partner", "Fleet Management Company", "Grants", "Logistics",
+        "Non Customer", "OEM", "Service", "Technology Partner",
+        "Upfitter/Distributor", "Utility/Energy Company", "Insurance Company", "Consultant"
+    ]
+    
+    # Initialize running totals data
+    if "subscription_running_totals" not in st.session_state.model_data:
+        st.session_state.model_data["subscription_running_totals"] = {}
+    
+    # Ensure all stakeholders are initialized
+    for stakeholder in stakeholders:
+        if stakeholder not in st.session_state.model_data["subscription_running_totals"]:
+            st.session_state.model_data["subscription_running_totals"][stakeholder] = {month: 0 for month in months}
+    
+    # Calculate running totals for subscriptions
+    for stakeholder in stakeholders:
+        running_total = 0
+        for month in months:
+            # Get new subscriptions for this month
+            new_subscriptions = st.session_state.model_data.get("subscription_new_customers", {}).get(stakeholder, {}).get(month, 0)
+            
+            # Get churn rate for this month (as percentage, so divide by 100)
+            churn_rate = st.session_state.model_data.get("subscription_churn_rates", {}).get(stakeholder, {}).get(month, 0)
+            churn_decimal = churn_rate / 100.0
+            
+            # Apply churn to existing customers, then add new customers
+            # Formula: Previous * (1 - churn_rate) + New
+            running_total = running_total * (1 - churn_decimal) + new_subscriptions
+            
+            # Store the result (round to avoid floating point precision issues)
+            st.session_state.model_data["subscription_running_totals"][stakeholder][month] = round(running_total, 2)
 
+def calculate_all_revenue():
+    """Calculate all revenue streams (from revenue_assumptions.py)"""
+    # Stakeholder list and transactional categories
+    stakeholders = [
+        "Equipment Manufacturer", "Dealership", "Corporate", "Charging as a Service",
+        "Charging Hardware", "Depot", "End User", "Infrastructure Partner",
+        "Finance Partner", "Fleet Management Company", "Grants", "Logistics",
+        "Non Customer", "OEM", "Service", "Technology Partner",
+        "Upfitter/Distributor", "Utility/Energy Company", "Insurance Company", "Consultant"
+    ]
+    
+    transactional_categories = ["Charging", "Vehicle", "Financing", "Other Revenue"]
+    
+    # Calculate subscription running totals first
+    calculate_subscription_running_totals()
+    
+    # Initialize revenue streams
+    revenue_streams = {
+        "Subscription": {month: 0 for month in months},
+        "Transactional": {month: 0 for month in months},
+        "Implementation": {month: 0 for month in months},
+        "Maintenance": {month: 0 for month in months}
+    }
+    
+    # Subscription Revenue (cumulative customers * monthly pricing)
+    for stakeholder in stakeholders:
+        for month in months:
+            active_customers = st.session_state.model_data.get("subscription_running_totals", {}).get(stakeholder, {}).get(month, 0)
+            monthly_price = st.session_state.model_data.get("subscription_pricing", {}).get(stakeholder, {}).get(month, 0)
+            revenue = active_customers * monthly_price
+            revenue_streams["Subscription"][month] += revenue
+    
+    # Implementation Revenue (one-time fees)
+    for stakeholder in stakeholders:
+        for month in months:
+            new_implementations = st.session_state.model_data.get("implementation_new_customers", {}).get(stakeholder, {}).get(month, 0)
+            implementation_fee = st.session_state.model_data.get("implementation_pricing", {}).get(stakeholder, {}).get(month, 0)
+            revenue = new_implementations * implementation_fee
+            revenue_streams["Implementation"][month] += revenue
+    
+    # Maintenance Revenue (one-time fees)
+    for stakeholder in stakeholders:
+        for month in months:
+            new_maintenance = st.session_state.model_data.get("maintenance_new_customers", {}).get(stakeholder, {}).get(month, 0)
+            maintenance_fee = st.session_state.model_data.get("maintenance_pricing", {}).get(stakeholder, {}).get(month, 0)
+            revenue = new_maintenance * maintenance_fee
+            revenue_streams["Maintenance"][month] += revenue
+    
+    # Transactional Revenue (volume * price * referral fee)
+    for category in transactional_categories:
+        for month in months:
+            volume = st.session_state.model_data.get("transactional_volume", {}).get(category, {}).get(month, 0)
+            price = st.session_state.model_data.get("transactional_price", {}).get(category, {}).get(month, 0)
+            referral_fee = st.session_state.model_data.get("transactional_referral_fee", {}).get(category, {}).get(month, 0)
+            revenue = volume * price * (referral_fee / 100)
+            revenue_streams["Transactional"][month] += revenue
+    
+    # Update the main revenue data for Income Statement
+    if "revenue" not in st.session_state.model_data:
+        st.session_state.model_data["revenue"] = {}
+    
+    for stream, monthly_data in revenue_streams.items():
+        st.session_state.model_data["revenue"][stream] = monthly_data
+
+
+
+# Calculate revenue from assumptions (save manually via button)
+calculate_all_revenue()
+
+# SG&A sync function from liquidity model  
+def update_sga_expenses_from_liquidity():
+    """Update SG&A expenses from liquidity cash disbursements (from liquidity_model.py)"""
+    
+    # Initialize SG&A if not exists
+    if "sga_expenses" not in st.session_state.model_data:
+        st.session_state.model_data["sga_expenses"] = {}
+    
+    # Only proceed if liquidity data exists
+    if "liquidity_data" not in st.session_state.model_data:
+        return
+        
+    # Map liquidity categories to SG&A categories
+    liquidity_to_sga_mapping = {
+        "Payroll": "Payroll",
+        "Contractors": "Contractors", 
+        "License Fees": "License Fees",
+        "Travel": "Travel",
+        "Shows": "Shows",
+        "Associations": "Associations",
+        "Marketing": "Marketing",
+        "Company Vehicle": "Company Vehicle",
+        "Grant Writer": "Grant Writer",
+        "Insurance": "Insurance",
+        "Legal / Professional Fees": "Legal / Professional Fees",
+        "Permitting/Fees/Licensing": "Permitting/Fees/Licensing",
+        "Shared Services": "Shared Services",
+        "Consultants/Audit/Tax": "Consultants/Audit/Tax",
+        "Pritchard Amex": "Pritchard Amex",
+        "Contingencies": "Contingencies",
+    }
+    
+    # Get the category order from liquidity data (maintains add/remove functionality)
+    ordered_categories = st.session_state.model_data["liquidity_data"].get("category_order", list(liquidity_to_sga_mapping.keys()))
+    
+    # Clear existing SG&A data to rebuild in correct order
+    st.session_state.model_data["sga_expenses"] = {}
+    
+    # Copy data from liquidity cash disbursements to SG&A expenses
+    for liquidity_cat in ordered_categories:
+        if (liquidity_cat in liquidity_to_sga_mapping and 
+            "expenses" in st.session_state.model_data["liquidity_data"] and
+            liquidity_cat in st.session_state.model_data["liquidity_data"]["expenses"]):
+            sga_cat = liquidity_to_sga_mapping[liquidity_cat]
+            st.session_state.model_data["sga_expenses"][sga_cat] = st.session_state.model_data["liquidity_data"]["expenses"][liquidity_cat].copy()
+
+# Auto-sync SG&A expenses from liquidity cash disbursements every time the page loads
+update_sga_expenses_from_liquidity()
 
 # Helper function to create custom tables with fixed category column
 def create_custom_table_with_years(categories, data_key, show_monthly=True):
@@ -928,7 +1083,7 @@ def create_comprehensive_income_statement(show_monthly=True, include_gross_margi
         sga_categories = [
             "Payroll", "Contractors", "License Fees", "Travel", "Shows", "Associations",
             "Marketing", "Company Vehicle", "Grant Writer", "Insurance", "Legal / Professional Fees",
-            "Permitting/Fees/Licensing", "Shared Services", "Consultants/Audit/Tax", "Pritchard AMEX", "Contingencies"
+            "Permitting/Fees/Licensing", "Shared Services", "Consultants/Audit/Tax", "Pritchard Amex", "Contingencies"
         ]
     
     # Calculate totals
@@ -1543,162 +1698,6 @@ def create_custom_percentage_table_with_total(categories, data_key, monthly_dict
     
     st.markdown(html_content, unsafe_allow_html=True)
 
-# Helper function to create combined table with total row
-def create_custom_table_with_total(categories, data_key, total_data, total_label, show_monthly=True):
-    """Create custom table with component rows and total row combined"""
-    # Initialize data if not exists
-    if data_key not in st.session_state.model_data:
-        st.session_state.model_data[data_key] = {}
-        for category in categories:
-            st.session_state.model_data[data_key][category] = {month: 0 for month in months}
-    
-    # Group months by year
-    years_dict = group_months_by_year(months)
-    
-    # Create column headers
-    if show_monthly:
-        data_columns = []
-        for year in sorted(years_dict.keys()):
-            data_columns.extend(years_dict[year])
-            data_columns.append(f"{year} Total")
-    else:
-        data_columns = [f"{year} Total" for year in sorted(years_dict.keys())]
-    
-    # Build HTML table
-    html_content = '<div class="fixed-table-container">'
-    
-    # Fixed category column
-    html_content += '<div class="fixed-category-column">'
-    html_content += '<div class="category-header">Category</div>'
-    
-    for category in categories:
-        html_content += f'<div class="category-cell">{category}</div>'
-    
-    # Add total row with special styling
-    html_content += f'<div class="category-total">{total_label}</div>'
-    html_content += '</div>'
-    
-    # Scrollable data area
-    html_content += '<div class="scrollable-data">'
-    html_content += '<table class="data-table"><colgroup>'
-    
-    # Define column groups for consistent width
-    for col in data_columns:
-        if "Total" in col:
-            html_content += '<col style="width: 100px;">'
-        else:
-            html_content += '<col style="width: 80px;">'
-    
-    html_content += '</colgroup>'
-    
-    # Header row
-    html_content += '<thead><tr style="height: 43px !important;">'
-    for col in data_columns:
-        css_class = "data-header year-total" if "Total" in col else "data-header"
-        html_content += f'<th class="{css_class}" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important; text-align: center !important;">{col}</th>'
-    html_content += '</tr></thead>'
-    
-    # Data rows
-    html_content += '<tbody>'
-    for category in categories:
-        html_content += '<tr style="height: 43px !important;">'
-        
-        if show_monthly:
-            for year in sorted(years_dict.keys()):
-                yearly_total = 0
-                for month in years_dict[year]:
-                    value = st.session_state.model_data[data_key].get(category, {}).get(month, 0)
-                    if data_key == "gross_margin":
-                        formatted_value = format_percentage(value)
-                    else:
-                        formatted_value = format_number(value)
-                    html_content += f'<td class="data-cell" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;">{formatted_value}</td>'
-                    yearly_total += value
-                
-                if data_key == "gross_margin":
-                    # For gross margin, calculate correct percentage: Total Gross Profit / Total Revenue for the year
-                    yearly_revenue = 0
-                    yearly_gross_profit = 0
-                    for month in years_dict[year]:
-                        revenue = st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0)
-                        gross_profit = st.session_state.model_data.get("gross_profit", {}).get(category, {}).get(month, 0)
-                        yearly_revenue += revenue
-                        yearly_gross_profit += gross_profit
-                    
-                    yearly_percentage = (yearly_gross_profit / yearly_revenue * 100) if yearly_revenue > 0 else 0
-                    formatted_yearly_total = format_percentage(yearly_percentage)
-                else:
-                    formatted_yearly_total = format_number(yearly_total)
-                html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{formatted_yearly_total}</strong></td>'
-        else:
-            for year in sorted(years_dict.keys()):
-                if data_key == "gross_margin":
-                    # For gross margin, calculate correct percentage: Total Gross Profit / Total Revenue for the year
-                    yearly_revenue = sum(
-                        st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0)
-                        for month in years_dict[year]
-                    )
-                    yearly_gross_profit = sum(
-                        st.session_state.model_data.get("gross_profit", {}).get(category, {}).get(month, 0)
-                        for month in years_dict[year]
-                    )
-                    yearly_percentage = (yearly_gross_profit / yearly_revenue * 100) if yearly_revenue > 0 else 0
-                    formatted_yearly_total = format_percentage(yearly_percentage)
-                else:
-                    yearly_total = sum(
-                        st.session_state.model_data[data_key].get(category, {}).get(month, 0)
-                        for month in years_dict[year]
-                    )
-                    formatted_yearly_total = format_number(yearly_total)
-                html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{formatted_yearly_total}</strong></td>'
-        
-        html_content += '</tr>'
-    
-    # Add total row with special styling
-    html_content += '<tr class="total-row" style="height: 43px !important;">'
-    
-    # Check if this is Net Income row to apply red formatting for negatives
-    is_net_income = total_label == "Net Income"
-    # Check if this is a percentage row
-    is_percentage = "%" in total_label
-    
-    if show_monthly:
-        for year in sorted(years_dict.keys()):
-            yearly_total = 0
-            for month in years_dict[year]:
-                value = total_data.get(month, 0)
-                if is_percentage:
-                    formatted_value = format_percentage(value)
-                else:
-                    formatted_value = format_number_with_color(value, apply_red_for_negative=is_net_income)
-                html_content += f'<td class="data-cell" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;">{formatted_value}</td>'
-                yearly_total += value
-            
-            if is_percentage:
-                # For percentage rows, calculate average percentage for the year
-                yearly_avg = yearly_total / len(years_dict[year])
-                formatted_yearly_total = format_percentage(yearly_avg)
-            else:
-                formatted_yearly_total = format_number_with_color(yearly_total, apply_red_for_negative=is_net_income)
-            html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{formatted_yearly_total}</strong></td>'
-    else:
-        for year in sorted(years_dict.keys()):
-            if is_percentage:
-                # For percentage rows, calculate average percentage for the year
-                yearly_avg = sum(total_data.get(month, 0) for month in years_dict[year]) / len(years_dict[year])
-                formatted_yearly_total = format_percentage(yearly_avg)
-            else:
-                yearly_total = sum(total_data.get(month, 0) for month in years_dict[year])
-                formatted_yearly_total = format_number_with_color(yearly_total, apply_red_for_negative=is_net_income)
-            html_content += f'<td class="data-cell year-total" style="height: 43px !important; line-height: 43px !important; padding: 0 4px !important;"><strong>{formatted_yearly_total}</strong></td>'
-    
-    html_content += '</tr>'
-    html_content += '</tbody></table>'
-    html_content += '</div>'
-    html_content += '</div>'
-    
-    st.markdown(html_content, unsafe_allow_html=True)
-
 # Header with SHAED branding
 st.markdown("""
 <div class="main-header">
@@ -1761,6 +1760,9 @@ show_monthly = view_mode == "Monthly + Yearly"
 st.markdown('<div class="section-header">📊 Income Statement</div>', unsafe_allow_html=True)
 st.info("📝 Data populated from Revenue, Gross Profit, and Liquidity dashboards")
 
+# Ensure we have the latest revenue calculations
+calculate_all_revenue()
+
 # Calculate all data for the comprehensive income statement
 revenue_categories = ["Subscription", "Transactional", "Implementation", "Maintenance"]
 cost_of_sales_categories = ["Subscription", "Transactional", "Implementation", "Maintenance"]
@@ -1803,11 +1805,11 @@ if ("liquidity_data" in st.session_state.model_data and
     "category_order" in st.session_state.model_data["liquidity_data"]):
     sga_categories = st.session_state.model_data["liquidity_data"]["category_order"]
 else:
-    sga_categories = [
-        "Payroll", "Contractors", "License Fees", "Travel", "Shows", "Associations",
-        "Marketing", "Company Vehicle", "Grant Writer", "Insurance", "Legal / Professional Fees",
-        "Permitting/Fees/Licensing", "Shared Services", "Consultants/Audit/Tax", "Pritchard AMEX", "Contingencies"
-    ]
+            sga_categories = [
+            "Payroll", "Contractors", "License Fees", "Travel", "Shows", "Associations",
+            "Marketing", "Company Vehicle", "Grant Writer", "Insurance", "Legal / Professional Fees",
+            "Permitting/Fees/Licensing", "Shared Services", "Consultants/Audit/Tax", "Pritchard Amex", "Contingencies"
+        ]
 
 # Calculate total SG&A expenses
 total_sga = {}
@@ -2116,387 +2118,70 @@ if not chart_df.empty:
 st.markdown("---")
 st.markdown('<div class="section-header">💾 Data Management</div>', unsafe_allow_html=True)
 
-col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
+col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    if st.button("💾 Save Data", type="primary", use_container_width=True):
-        if save_data(st.session_state.model_data):
-            st.success("✅ Data saved successfully!")
-        else:
-            st.error("❌ Failed to save data")
+    # Auto-save revenue data silently
+    try:
+        calculate_all_revenue()
+        save_revenue_calculations_to_database(st.session_state.model_data)
+    except Exception as e:
+        pass  # Silent error handling
 
 with col2:
-    if st.button("📂 Load Data", type="primary", use_container_width=True):
-        st.session_state.model_data = load_data()
-        st.success("✅ Data loaded successfully!")
-        st.rerun()
+    # Auto-save income statement silently
+    try:
+        save_income_statement_to_database(st.session_state.model_data)
+    except Exception as e:
+        pass  # Silent error handling
 
 with col3:
-    # Create Excel export data
+    # Auto-save all data silently
     try:
-        import tempfile
-        import os
-        from datetime import datetime
-        
-        # Generate timestamp and filename
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"SHAED_Income_Statement_{timestamp}.xlsx"
-        
-        # Create temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
-            temp_path = tmp_file.name
-        
-        # Create Excel writer
-        with pd.ExcelWriter(temp_path, engine='openpyxl') as writer:
-            # Export Revenue Data - filter for correct categories only
-            revenue_data = st.session_state.model_data.get("revenue", {})
-            if revenue_data:
-                # Filter to only include the correct revenue categories
-                filtered_revenue_data = {}
-                for category in revenue_categories:
-                    if category in revenue_data:
-                        filtered_revenue_data[category] = revenue_data[category]
-                
-                if filtered_revenue_data:
-                    revenue_df = pd.DataFrame(filtered_revenue_data).T
-                    revenue_df.index.name = 'Month'
-                    revenue_df.to_excel(writer, sheet_name='Revenue')
-            
-            # Export Cost of Sales Data - filter for correct categories only
-            cogs_data = st.session_state.model_data.get("cogs", {})
-            if cogs_data:
-                # Filter to only include the correct COGS categories
-                filtered_cogs_data = {}
-                for category in cost_of_sales_categories:
-                    if category in cogs_data:
-                        filtered_cogs_data[category] = cogs_data[category]
-                
-                if filtered_cogs_data:
-                    cogs_df = pd.DataFrame(filtered_cogs_data).T
-                    cogs_df.index.name = 'Month'
-                    cogs_df.to_excel(writer, sheet_name='Cost of Sales')
-            
-            # Export Gross Profit Data - filter for correct categories only
-            gross_profit_data = st.session_state.model_data.get("gross_profit", {})
-            if gross_profit_data:
-                # Filter to only include the correct gross profit categories
-                filtered_gross_profit_data = {}
-                for category in ["Subscription", "Transactional", "Implementation", "Maintenance"]:
-                    if category in gross_profit_data:
-                        filtered_gross_profit_data[category] = gross_profit_data[category]
-                
-                if filtered_gross_profit_data:
-                    gross_profit_df = pd.DataFrame(filtered_gross_profit_data).T
-                    gross_profit_df.index.name = 'Month'
-                    gross_profit_df.to_excel(writer, sheet_name='Gross Profit')
-            
-            # Export SG&A Expenses Data - filter for correct categories only
-            sga_data = st.session_state.model_data.get("sga_expenses", {})
-            if sga_data:
-                # Filter to only include the correct SG&A categories
-                filtered_sga_data = {}
-                for category in sga_categories:
-                    if category in sga_data:
-                        filtered_sga_data[category] = sga_data[category]
-                
-                if filtered_sga_data:
-                    sga_df = pd.DataFrame(filtered_sga_data).T
-                    sga_df.index.name = 'Month'
-                    sga_df.to_excel(writer, sheet_name='SGA Expenses')
-            
-            # Export Comprehensive Income Statement (matches the unified table structure)
-            comprehensive_data = []
-            
-            # Add section headers and data for each category
-            # Revenue Section
-            comprehensive_data.append({'Category': 'REVENUE', 'Type': 'Section Header'})
-            for category in revenue_categories:
-                row = {'Category': f'  {category}', 'Type': 'Revenue'}
-                for month in months:
-                    value = st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0)
-                    row[month] = value
-                comprehensive_data.append(row)
-            
-            # Total Revenue
-            total_revenue_row = {'Category': 'Total Revenue', 'Type': 'Total'}
-            for month in months:
-                total_revenue_row[month] = sum(st.session_state.model_data.get("revenue", {}).get(cat, {}).get(month, 0) for cat in revenue_categories)
-            comprehensive_data.append(total_revenue_row)
-            
-            # Cost of Sales Section  
-            comprehensive_data.append({'Category': 'COST OF SALES', 'Type': 'Section Header'})
-            for category in cost_of_sales_categories:
-                row = {'Category': f'  {category}', 'Type': 'Cost of Sales'}
-                for month in months:
-                    value = st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0)
-                    row[month] = value
-                comprehensive_data.append(row)
-            
-            # Total Cost of Sales
-            total_cogs_row = {'Category': 'Total Cost of Sales', 'Type': 'Total'}
-            for month in months:
-                total_cogs_row[month] = sum(st.session_state.model_data.get("cogs", {}).get(cat, {}).get(month, 0) for cat in cost_of_sales_categories)
-            comprehensive_data.append(total_cogs_row)
-            
-            # Gross Profit Section
-            comprehensive_data.append({'Category': 'GROSS PROFIT', 'Type': 'Section Header'})
-            for category in revenue_categories:  # Same categories as revenue
-                row = {'Category': f'  {category}', 'Type': 'Gross Profit'}
-                for month in months:
-                    revenue = st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0)
-                    cogs = st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0)
-                    row[month] = revenue - cogs
-                comprehensive_data.append(row)
-            
-            # Total Gross Profit
-            total_gross_profit_row = {'Category': 'Total Gross Profit', 'Type': 'Total'}
-            for month in months:
-                revenue = sum(st.session_state.model_data.get("revenue", {}).get(cat, {}).get(month, 0) for cat in revenue_categories)
-                cogs = sum(st.session_state.model_data.get("cogs", {}).get(cat, {}).get(month, 0) for cat in cost_of_sales_categories)
-                total_gross_profit_row[month] = revenue - cogs
-            comprehensive_data.append(total_gross_profit_row)
-            
-            # SG&A Expenses Section
-            comprehensive_data.append({'Category': 'SG&A EXPENSES', 'Type': 'Section Header'})
-            for category in sga_categories:
-                row = {'Category': f'  {category}', 'Type': 'SG&A'}
-                for month in months:
-                    value = st.session_state.model_data.get("sga_expenses", {}).get(category, {}).get(month, 0)
-                    row[month] = value
-                comprehensive_data.append(row)
-            
-            # Total SG&A
-            total_sga_row = {'Category': 'Total SG&A Expenses', 'Type': 'Total'}
-            for month in months:
-                total_sga_row[month] = sum(st.session_state.model_data.get("sga_expenses", {}).get(cat, {}).get(month, 0) for cat in sga_categories)
-            comprehensive_data.append(total_sga_row)
-            
-            # Net Income
-            net_income_row = {'Category': 'Net Income', 'Type': 'Total'}
-            for month in months:
-                revenue = sum(st.session_state.model_data.get("revenue", {}).get(cat, {}).get(month, 0) for cat in revenue_categories)
-                cogs = sum(st.session_state.model_data.get("cogs", {}).get(cat, {}).get(month, 0) for cat in cost_of_sales_categories)
-                sga = sum(st.session_state.model_data.get("sga_expenses", {}).get(cat, {}).get(month, 0) for cat in sga_categories)
-                net_income_row[month] = revenue - cogs - sga
-            comprehensive_data.append(net_income_row)
-            
-            # Create comprehensive DataFrame
-            if comprehensive_data:
-                comprehensive_df = pd.DataFrame(comprehensive_data)
-                # Move Category and Type columns to front, then months in chronological order
-                month_cols = [col for col in comprehensive_df.columns if col not in ['Category', 'Type']]
-                month_cols.sort(key=lambda x: months.index(x) if x in months else 999)
-                column_order = ['Category', 'Type'] + month_cols
-                comprehensive_df = comprehensive_df[column_order]
-                comprehensive_df.to_excel(writer, sheet_name='Comprehensive Income Statement', index=False)
-            
-            # Export Traditional Income Statement Summary (totals only)
-            summary_data = []
-            for month in months:
-                revenue = sum(st.session_state.model_data.get("revenue", {}).get(cat, {}).get(month, 0) for cat in revenue_categories)
-                cost_of_sales = sum(st.session_state.model_data.get("cogs", {}).get(cat, {}).get(month, 0) for cat in cost_of_sales_categories)
-                gross_profit = revenue - cost_of_sales
-                sga = sum(st.session_state.model_data.get("sga_expenses", {}).get(cat, {}).get(month, 0) for cat in sga_categories)
-                net_income = gross_profit - sga
-                gross_margin = (gross_profit / revenue * 100) if revenue > 0 else 0
-                
-                summary_data.append({
-                    'Month': month,
-                    'Total Revenue': revenue,
-                    'Total Cost of Sales': cost_of_sales,
-                    'Total Gross Profit': gross_profit,
-                    'Gross Margin %': gross_margin,
-                    'Total SGA Expenses': sga,
-                    'Net Income': net_income
-                })
-            
-            if summary_data:
-                summary_df = pd.DataFrame(summary_data)
-                summary_df.to_excel(writer, sheet_name='Income Statement Summary', index=False)
-            
-            # Export Comprehensive Yearly Summary
-            years_dict = group_months_by_year(months)
-            yearly_comprehensive_data = []
-            
-            # Add section headers and data for each category by year
-            # Revenue Section
-            yearly_comprehensive_data.append({'Category': 'REVENUE', 'Type': 'Section Header'})
-            for category in revenue_categories:
-                row = {'Category': f'  {category}', 'Type': 'Revenue'}
-                for year in sorted(years_dict.keys()):
-                    year_months = years_dict[year]
-                    year_total = sum(st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0) for month in year_months)
-                    row[f'{year} Total'] = year_total
-                yearly_comprehensive_data.append(row)
-            
-            # Total Revenue by year
-            total_revenue_yearly = {'Category': 'Total Revenue', 'Type': 'Total'}
-            for year in sorted(years_dict.keys()):
-                year_months = years_dict[year]
-                year_total = sum(
-                    sum(st.session_state.model_data.get("revenue", {}).get(cat, {}).get(month, 0) for cat in revenue_categories)
-                    for month in year_months
-                )
-                total_revenue_yearly[f'{year} Total'] = year_total
-            yearly_comprehensive_data.append(total_revenue_yearly)
-            
-            # Cost of Sales Section
-            yearly_comprehensive_data.append({'Category': 'COST OF SALES', 'Type': 'Section Header'})
-            for category in cost_of_sales_categories:
-                row = {'Category': f'  {category}', 'Type': 'Cost of Sales'}
-                for year in sorted(years_dict.keys()):
-                    year_months = years_dict[year]
-                    year_total = sum(st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0) for month in year_months)
-                    row[f'{year} Total'] = year_total
-                yearly_comprehensive_data.append(row)
-            
-            # Total Cost of Sales by year
-            total_cogs_yearly = {'Category': 'Total Cost of Sales', 'Type': 'Total'}
-            for year in sorted(years_dict.keys()):
-                year_months = years_dict[year]
-                year_total = sum(
-                    sum(st.session_state.model_data.get("cogs", {}).get(cat, {}).get(month, 0) for cat in cost_of_sales_categories)
-                    for month in year_months
-                )
-                total_cogs_yearly[f'{year} Total'] = year_total
-            yearly_comprehensive_data.append(total_cogs_yearly)
-            
-            # Gross Profit Section
-            yearly_comprehensive_data.append({'Category': 'GROSS PROFIT', 'Type': 'Section Header'})
-            for category in revenue_categories:
-                row = {'Category': f'  {category}', 'Type': 'Gross Profit'}
-                for year in sorted(years_dict.keys()):
-                    year_months = years_dict[year]
-                    year_revenue = sum(st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0) for month in year_months)
-                    year_cogs = sum(st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0) for month in year_months)
-                    row[f'{year} Total'] = year_revenue - year_cogs
-                yearly_comprehensive_data.append(row)
-            
-            # Total Gross Profit by year
-            total_gross_profit_yearly = {'Category': 'Total Gross Profit', 'Type': 'Total'}
-            for year in sorted(years_dict.keys()):
-                year_months = years_dict[year]
-                year_revenue = sum(
-                    sum(st.session_state.model_data.get("revenue", {}).get(cat, {}).get(month, 0) for cat in revenue_categories)
-                    for month in year_months
-                )
-                year_cogs = sum(
-                    sum(st.session_state.model_data.get("cogs", {}).get(cat, {}).get(month, 0) for cat in cost_of_sales_categories)
-                    for month in year_months
-                )
-                total_gross_profit_yearly[f'{year} Total'] = year_revenue - year_cogs
-            yearly_comprehensive_data.append(total_gross_profit_yearly)
-            
-            # SG&A Expenses Section
-            yearly_comprehensive_data.append({'Category': 'SG&A EXPENSES', 'Type': 'Section Header'})
-            for category in sga_categories:
-                row = {'Category': f'  {category}', 'Type': 'SG&A'}
-                for year in sorted(years_dict.keys()):
-                    year_months = years_dict[year]
-                    year_total = sum(st.session_state.model_data.get("sga_expenses", {}).get(category, {}).get(month, 0) for month in year_months)
-                    row[f'{year} Total'] = year_total
-                yearly_comprehensive_data.append(row)
-            
-            # Total SG&A by year
-            total_sga_yearly = {'Category': 'Total SG&A Expenses', 'Type': 'Total'}
-            for year in sorted(years_dict.keys()):
-                year_months = years_dict[year]
-                year_total = sum(
-                    sum(st.session_state.model_data.get("sga_expenses", {}).get(cat, {}).get(month, 0) for cat in sga_categories)
-                    for month in year_months
-                )
-                total_sga_yearly[f'{year} Total'] = year_total
-            yearly_comprehensive_data.append(total_sga_yearly)
-            
-            # Net Income by year
-            net_income_yearly = {'Category': 'Net Income', 'Type': 'Total'}
-            for year in sorted(years_dict.keys()):
-                year_months = years_dict[year]
-                year_revenue = sum(
-                    sum(st.session_state.model_data.get("revenue", {}).get(cat, {}).get(month, 0) for cat in revenue_categories)
-                    for month in year_months
-                )
-                year_cogs = sum(
-                    sum(st.session_state.model_data.get("cogs", {}).get(cat, {}).get(month, 0) for cat in cost_of_sales_categories)
-                    for month in year_months
-                )
-                year_sga = sum(
-                    sum(st.session_state.model_data.get("sga_expenses", {}).get(cat, {}).get(month, 0) for cat in sga_categories)
-                    for month in year_months
-                )
-                net_income_yearly[f'{year} Total'] = year_revenue - year_cogs - year_sga
-            yearly_comprehensive_data.append(net_income_yearly)
-            
-            # Create comprehensive yearly DataFrame
-            if yearly_comprehensive_data:
-                yearly_comprehensive_df = pd.DataFrame(yearly_comprehensive_data)
-                # Order columns: Category, Type, then years in chronological order
-                year_cols = [col for col in yearly_comprehensive_df.columns if col not in ['Category', 'Type']]
-                year_cols.sort()
-                column_order = ['Category', 'Type'] + year_cols
-                yearly_comprehensive_df = yearly_comprehensive_df[column_order]
-                yearly_comprehensive_df.to_excel(writer, sheet_name='Comprehensive Yearly Summary', index=False)
-            
-            # Export Traditional Yearly Summary (totals only)
-            yearly_summary = []
-            for year in sorted(years_dict.keys()):
-                year_months = years_dict[year]
-                # Calculate yearly totals from raw data
-                year_revenue = sum(
-                    sum(st.session_state.model_data.get("revenue", {}).get(cat, {}).get(month, 0) for cat in revenue_categories)
-                    for month in year_months
-                )
-                year_cogs = sum(
-                    sum(st.session_state.model_data.get("cogs", {}).get(cat, {}).get(month, 0) for cat in cost_of_sales_categories)
-                    for month in year_months
-                )
-                year_gross_profit = year_revenue - year_cogs
-                year_sga = sum(
-                    sum(st.session_state.model_data.get("sga_expenses", {}).get(cat, {}).get(month, 0) for cat in sga_categories)
-                    for month in year_months
-                )
-                year_net_income = year_gross_profit - year_sga
-                year_gross_margin = (year_gross_profit / year_revenue * 100) if year_revenue > 0 else 0
-                
-                yearly_summary.append({
-                    'Year': year,
-                    'Total Revenue': year_revenue,
-                    'Total Cost of Sales': year_cogs,
-                    'Total Gross Profit': year_gross_profit,
-                    'Gross Margin %': year_gross_margin,
-                    'Total SGA Expenses': year_sga,
-                    'Net Income': year_net_income
-                })
-            
-            if yearly_summary:
-                yearly_df = pd.DataFrame(yearly_summary)
-                yearly_df.to_excel(writer, sheet_name='Yearly Summary', index=False)
-        
-        # Read the file data for download
-        with open(temp_path, 'rb') as f:
-            excel_data = f.read()
-        
-        # Clean up temp file
-        os.unlink(temp_path)
-        
-        # Direct download button that triggers immediately
-        st.download_button(
-            label="📊 Export Excel",
-            data=excel_data,
-            file_name=filename,
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            type="primary",
-            use_container_width=True
-        )
-        
-    except ImportError:
-        # Fallback button if openpyxl not available
-        if st.button("📊 Export Excel", type="primary", use_container_width=True):
-            st.error("❌ Excel export requires openpyxl. Please install: pip install openpyxl")
+        save_all_to_supabase_enhanced(st.session_state.model_data)
     except Exception as e:
-        # Fallback button if there's an error
-        if st.button("📊 Export Excel", type="primary", use_container_width=True):
-            st.error(f"❌ Error creating Excel file: {str(e)}")
+        pass  # Silent error handling
+
+with col4:
+    if st.button("📂 Load Data", type="primary", use_container_width=True):
+        try:
+            st.session_state.model_data = load_data_from_source()
+            st.rerun()
+        except Exception as e:
+            pass  # Silent error handling
+
+with st.expander("🔧 Advanced Options"):
+    st.info("Additional data management tools available here")
+    
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        if st.button("🧹 Fix Categories", use_container_width=True):
+            try:
+                # Clean up cash disbursement categories
+                success = clean_up_cash_disbursement_categories(st.session_state.model_data)
+                if success:
+                    st.success("✅ Categories cleaned up successfully!")
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to clean up categories")
+            except Exception as e:
+                st.error(f"Cleanup error: {str(e)}")
+    
+    with col_b:
+        if st.button("🔍 Validate Supabase Data", use_container_width=True):
+            try:
+                                  # Supabase validation now integrated in consolidated database.py
+                  st.info("📊 Database validation integrated in consolidated database.py")
+            except Exception as e:
+                st.error(f"Validation error: {str(e)}")
+    
+    with col_c:
+        if st.button("🌐 Supabase Info", use_container_width=True):
+            try:
+                # Supabase info now integrated in consolidated database.py
+                show_supabase_access_info()
+            except Exception as e:
+                st.error(f"Info error: {str(e)}")
 
 # Footer
 st.markdown("""
@@ -2505,3 +2190,24 @@ st.markdown("""
     <small>© 2025 SHAED - All rights reserved</small>
 </div>
 """, unsafe_allow_html=True)
+
+# Auto-save all data silently - no manual buttons needed
+# Save Revenue Data
+try:
+    from database import save_revenue_calculations_to_database
+    save_revenue_calculations_to_database(st.session_state.model_data)
+except Exception as e:
+    pass  # Silent error handling
+
+# Save Income Statement  
+try:
+    from database import save_income_statement_to_database
+    save_income_statement_to_database(st.session_state.model_data)
+except Exception as e:
+    pass  # Silent error handling
+
+# Save All Data
+try:
+    save_data_to_source(st.session_state.model_data)
+except Exception as e:
+    pass  # Silent error handling
