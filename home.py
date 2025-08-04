@@ -190,7 +190,7 @@ with col1:
     </div>
     """, unsafe_allow_html=True)
     if st.button("Open KPIs Dashboard", key="kpi_btn"):
-        st.info("Please run: `streamlit run kpi_dashboard.py`")
+        st.switch_page("pages/1__KPIs_Dashboard.py")
 
 with col2:
     st.markdown("""
@@ -200,7 +200,7 @@ with col2:
     </div>
     """, unsafe_allow_html=True)
     if st.button("Open Income Statement", key="income_btn"):
-        st.info("Please run: `streamlit run financial_model.py`")
+        st.switch_page("pages/2__Income_Statement.py")
 
 with col3:
     st.markdown("""
@@ -210,7 +210,7 @@ with col3:
     </div>
     """, unsafe_allow_html=True)
     if st.button("Open Liquidity Forecast", key="liquidity_btn"):
-        st.info("Please run: `streamlit run liquidity_model.py`")
+        st.switch_page("pages/3__Liquidity_Forecast.py")
 
 # Second row of navigation cards
 col4, col5, col6 = st.columns(3)
@@ -223,7 +223,7 @@ with col4:
     </div>
     """, unsafe_allow_html=True)
     if st.button("Open Revenue Dashboard", key="revenue_btn"):
-        st.info("Please run: `streamlit run revenue_assumptions.py`")
+        st.switch_page("pages/4_💵_Revenue_Assumptions.py")
 
 with col5:
     st.markdown("""
@@ -233,7 +233,7 @@ with col5:
     </div>
     """, unsafe_allow_html=True)
     if st.button("Open Headcount Dashboard", key="headcount_btn"):
-        st.info("Please run: `streamlit run payroll_model.py`")
+        st.switch_page("pages/5__Headcount_Planning.py")
 
 with col6:
     st.markdown("""
@@ -243,7 +243,7 @@ with col6:
     </div>
     """, unsafe_allow_html=True)
     if st.button("Open Gross Profit Dashboard", key="gross_profit_btn"):
-        st.info("Please run: `streamlit run gross_profit_model.py`")
+        st.switch_page("pages/6__Gross_Profit_Analysis.py")
 
 # Third row with one card
 col7, col8, col9 = st.columns([1, 1, 1])
@@ -256,7 +256,7 @@ with col8:
     </div>
     """, unsafe_allow_html=True)
     if st.button("Open Hosting Dashboard", key="hosting_btn"):
-        st.info("Please run: `streamlit run hosting_costs_model.py`")
+        st.switch_page("pages/7__Hosting_Costs.py")
 
 # Features Section
 st.markdown('<div class="section-header">✨ Platform Features</div>', unsafe_allow_html=True)
@@ -303,15 +303,21 @@ with st.sidebar:
     st.markdown("---")
     
     st.markdown("#### Quick Links")
-    st.markdown("""
-    - 📊 [KPIs](kpi_dashboard.py)
-    - 📈 [Income Statement](financial_model.py)
-    - 💰 [Liquidity](liquidity_model.py)
-    - 💵 [Revenue](revenue_assumptions.py)
-    - 👥 [Headcount](payroll_model.py)
-    - 🔍 [Gross Profit](gross_profit_model.py)
-    - ☁️ [Hosting](hosting_costs_model.py)
-    """)
+    
+    if st.button("📊 KPIs", key="sidebar_kpi"):
+        st.switch_page("pages/1__KPIs_Dashboard.py")
+    if st.button("📈 Income Statement", key="sidebar_income"):
+        st.switch_page("pages/2__Income_Statement.py")
+    if st.button("💰 Liquidity", key="sidebar_liquidity"):
+        st.switch_page("pages/3__Liquidity_Forecast.py")
+    if st.button("💵 Revenue", key="sidebar_revenue"):
+        st.switch_page("pages/4_💵_Revenue_Assumptions.py")
+    if st.button("👥 Headcount", key="sidebar_headcount"):
+        st.switch_page("pages/5__Headcount_Planning.py")
+    if st.button("🔍 Gross Profit", key="sidebar_gross"):
+        st.switch_page("pages/6__Gross_Profit_Analysis.py")
+    if st.button("☁️ Hosting", key="sidebar_hosting"):
+        st.switch_page("pages/7__Hosting_Costs.py")
     
     st.markdown("---")
     st.markdown("#### 📊 Data Management")
