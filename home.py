@@ -295,11 +295,11 @@ st.markdown("""
         font-size: 1rem !important;
         transition: all 0.3s ease !important;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
-        width: 100% !important;
-        min-width: 100% !important;
-        max-width: 100% !important;
         display: block !important;
         margin: 0 auto !important;
+        min-width: 200px !important;
+        max-width: 280px !important;
+        width: auto !important;
     }
     
     .stButton > button:hover {
@@ -308,45 +308,12 @@ st.markdown("""
         background: linear-gradient(90deg, #00B574 0%, #009A64 100%) !important;
     }
     
-    /* Ensure button container takes full width */
+    /* Center button containers */
     .stButton {
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
         width: 100% !important;
-        display: block !important;
-    }
-    
-    /* Force button container in columns to be full width */
-    [data-testid="column"] .stButton {
-        width: 100% !important;
-    }
-    
-    [data-testid="column"] .stButton > button {
-        width: 100% !important;
-        min-width: 100% !important;
-        box-sizing: border-box !important;
-    }
-    
-    /* Additional button width enforcement for Streamlit Cloud */
-    .element-container .stButton {
-        width: 100% !important;
-    }
-    
-    .element-container .stButton > button {
-        width: 100% !important;
-        min-width: 100% !important;
-        flex: 1 !important;
-    }
-    
-    /* Ensure columns maintain proper spacing */
-    [data-testid="column"] {
-        padding: 0 0.5rem !important;
-    }
-    
-    [data-testid="column"]:first-child {
-        padding-left: 0 !important;
-    }
-    
-    [data-testid="column"]:last-child {
-        padding-right: 0 !important;
     }
     
     /* Welcome section */
