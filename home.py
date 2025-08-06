@@ -286,21 +286,67 @@ st.markdown("""
     
     /* Button styling */
     .stButton > button {
-        background: linear-gradient(90deg, #00D084 0%, #00B574 100%);
-        color: white;
-        border: none;
-        border-radius: 8px;
-        padding: 0.75rem 2rem;
-        font-weight: 600;
-        font-size: 1rem;
-        transition: all 0.3s ease;
-        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        width: 100%;
+        background: linear-gradient(90deg, #00D084 0%, #00B574 100%) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 8px !important;
+        padding: 0.75rem 2rem !important;
+        font-weight: 600 !important;
+        font-size: 1rem !important;
+        transition: all 0.3s ease !important;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+        width: 100% !important;
+        min-width: 100% !important;
+        max-width: 100% !important;
+        display: block !important;
+        margin: 0 auto !important;
     }
     
     .stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        transform: translateY(-2px) !important;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2) !important;
+        background: linear-gradient(90deg, #00B574 0%, #009A64 100%) !important;
+    }
+    
+    /* Ensure button container takes full width */
+    .stButton {
+        width: 100% !important;
+        display: block !important;
+    }
+    
+    /* Force button container in columns to be full width */
+    [data-testid="column"] .stButton {
+        width: 100% !important;
+    }
+    
+    [data-testid="column"] .stButton > button {
+        width: 100% !important;
+        min-width: 100% !important;
+        box-sizing: border-box !important;
+    }
+    
+    /* Additional button width enforcement for Streamlit Cloud */
+    .element-container .stButton {
+        width: 100% !important;
+    }
+    
+    .element-container .stButton > button {
+        width: 100% !important;
+        min-width: 100% !important;
+        flex: 1 !important;
+    }
+    
+    /* Ensure columns maintain proper spacing */
+    [data-testid="column"] {
+        padding: 0 0.5rem !important;
+    }
+    
+    [data-testid="column"]:first-child {
+        padding-left: 0 !important;
+    }
+    
+    [data-testid="column"]:last-child {
+        padding-right: 0 !important;
     }
     
     /* Welcome section */
