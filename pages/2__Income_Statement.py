@@ -11,6 +11,20 @@ st.set_page_config(
     layout="wide"
 )
 
+# Check authentication
+if "password_correct" not in st.session_state or not st.session_state.get("password_correct", False):
+    st.error("🔒 Please login from the Home page first.")
+    st.stop()
+
+# Add logout functionality to sidebar
+with st.sidebar:
+    st.markdown("---")
+    if st.button("🚪 Logout", key="logout_button"):
+        # Clear all session state variables
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+
 # Custom CSS for SHAED branding and fixed category column
 st.markdown("""
 <style>
@@ -54,17 +68,7 @@ st.markdown("""
         font-weight: 600;
     }
     
-    /* Dashboard Navigation header - centered */
-    .nav-section-header {
-        background-color: #00D084;
-        color: white;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1.5rem 0 1rem 0;
-        font-size: 1.2rem;
-        font-weight: 600;
-        text-align: center;
-    }
+
     
     /* Button styling */
     .stButton > button,
@@ -448,8 +452,22 @@ st.markdown("""
         padding-top: 0 !important;
         padding-bottom: 0 !important;
     }
-</style>
-""", unsafe_allow_html=True)
+    
+    /* Supplemental data styling - light gray background */
+    .supplemental-data {
+        background-color: #f5f5f5 !important;
+    }
+    
+    .supplemental-data.section-header {
+        background-color: #e9e9e9 !important;
+        color: #333333 !important;
+    }
+    
+    .supplemental-data.total-row {
+        background-color: #e9e9e9 !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 # Data persistence functions are now imported from database.py
 
@@ -523,10 +541,8 @@ def get_active_subscribers(month):
 
 def calculate_hosting_costs_from_gross_profit_model():
     """Calculate hosting costs based on gross profit model monthly structure"""
-    if "gross_profit_data" not in st.session_state.model_data:
-        return {}, {}
-    
-    gp_data = st.session_state.model_data["gross_profit_data"]
+    # Get hosting costs from model_settings data (loaded via load_data)
+    gp_data = st.session_state.model_data.get("gross_profit_data", {})
     
     # Get hosting structure
     hosting_structure = gp_data.get("saas_hosting_structure", {
@@ -579,6 +595,7 @@ def auto_calculate_cogs_from_gross_profit_model():
     if "revenue" not in st.session_state.model_data:
         return
     
+    # Check if gross_profit_data is available (loaded from model_settings)
     if "gross_profit_data" not in st.session_state.model_data:
         return
     
@@ -729,7 +746,7 @@ def calculate_all_revenue():
 # Calculate revenue from assumptions (save manually via button)
 calculate_all_revenue()
 
-# SG&A sync function from liquidity model  
+# Operating Expenses sync function from liquidity model  
 def update_sga_expenses_from_liquidity():
     """Update SG&A expenses from liquidity cash disbursements (from liquidity_model.py)"""
     
@@ -1109,7 +1126,7 @@ def create_comprehensive_income_statement(show_monthly=True, include_gross_margi
             st.session_state.model_data.get("sga_expenses", {}).get(cat, {}).get(month, 0) 
             for cat in sga_categories
         )
-        net_income[month] = total_gross_profit[month] - total_sga[month]
+        net_income[month] = total_revenue[month] - total_sga[month]
     
     # Build HTML table using new comprehensive table structure
     html_content = '<div class="comprehensive-table">'
@@ -1182,114 +1199,120 @@ def create_comprehensive_income_statement(show_monthly=True, include_gross_margi
             html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
     html_content += '</tr>'
     
-    # Cost of Sales section header
-    html_content += '<tr class="section-header">'
-    html_content += '<td>Cost of Sales</td>'
-    for col in data_columns:
-        html_content += '<td></td>'
-    html_content += '</tr>'
+    # Cost of Sales section header (only show if include_gross_margin is True)
+    if include_gross_margin:
+        html_content += '<tr class="section-header supplemental-data">'
+        html_content += '<td>Cost of Sales</td>'
+        for col in data_columns:
+            html_content += '<td></td>'
+        html_content += '</tr>'
     
-    for category in cost_of_sales_categories:
-        html_content += '<tr>'
-        html_content += f'<td>  {category}</td>'
+    if include_gross_margin:
+        for category in cost_of_sales_categories:
+            html_content += '<tr class="supplemental-data">'
+            html_content += f'<td>  {category}</td>'
+            if show_monthly:
+                for year in sorted(years_dict.keys()):
+                    for month in years_dict[year]:
+                        value = st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0)
+                        formatted_value = format_number(value)
+                        html_content += f'<td>{formatted_value}</td>'
+                    
+                    yearly_total = sum(st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                    formatted_yearly_total = format_number(yearly_total)
+                    html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+            else:
+                for year in sorted(years_dict.keys()):
+                    yearly_total = sum(st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                    formatted_yearly_total = format_number(yearly_total)
+                    html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+            html_content += '</tr>'
+    
+    # Total Cost of Sales row (only show if include_gross_margin is True)
+    if include_gross_margin:
+        html_content += '<tr class="total-row supplemental-data">'
+        html_content += '<td style="color: #666666; font-style: italic;">Total Cost of Sales (Memo)*</td>'
         if show_monthly:
             for year in sorted(years_dict.keys()):
                 for month in years_dict[year]:
-                    value = st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0)
+                    value = total_cost_of_sales.get(month, 0)
                     formatted_value = format_number(value)
-                    html_content += f'<td>{formatted_value}</td>'
-                
-                yearly_total = sum(st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                    html_content += f'<td style="color: #666666; font-style: italic;">{formatted_value}</td>'
+                yearly_total = sum(total_cost_of_sales.get(month, 0) for month in years_dict[year])
                 formatted_yearly_total = format_number(yearly_total)
-                html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+                html_content += f'<td class="year-total" style="color: #666666; font-style: italic;">{formatted_yearly_total}</td>'
         else:
             for year in sorted(years_dict.keys()):
-                yearly_total = sum(st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                yearly_total = sum(total_cost_of_sales.get(month, 0) for month in years_dict[year])
                 formatted_yearly_total = format_number(yearly_total)
-                html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+                html_content += f'<td class="year-total" style="color: #666666; font-style: italic;">{formatted_yearly_total}</td>'
         html_content += '</tr>'
     
-    # Total Cost of Sales row
-    html_content += '<tr class="total-row">'
-    html_content += '<td>Total Cost of Sales</td>'
-    if show_monthly:
-        for year in sorted(years_dict.keys()):
-            for month in years_dict[year]:
-                value = total_cost_of_sales.get(month, 0)
-                formatted_value = format_number(value)
-                html_content += f'<td>{formatted_value}</td>'
-            yearly_total = sum(total_cost_of_sales.get(month, 0) for month in years_dict[year])
-            formatted_yearly_total = format_number(yearly_total)
-            html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
-    else:
-        for year in sorted(years_dict.keys()):
-            yearly_total = sum(total_cost_of_sales.get(month, 0) for month in years_dict[year])
-            formatted_yearly_total = format_number(yearly_total)
-            html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
-    html_content += '</tr>'
+    # Gross Profit section header (only show if include_gross_margin is True)
+    if include_gross_margin:
+        html_content += '<tr class="section-header supplemental-data">'
+        html_content += '<td>Gross Profit</td>'
+        for col in data_columns:
+            html_content += '<td></td>'
+        html_content += '</tr>'
     
-    # Gross Profit section header
-    html_content += '<tr class="section-header">'
-    html_content += '<td>Gross Profit</td>'
-    for col in data_columns:
-        html_content += '<td></td>'
-    html_content += '</tr>'
+    if include_gross_margin:
+        for category in gross_profit_categories:
+            html_content += '<tr class="supplemental-data">'
+            html_content += f'<td>  {category}</td>'
+            if show_monthly:
+                for year in sorted(years_dict.keys()):
+                    for month in years_dict[year]:
+                        revenue = st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0)
+                        cost = st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0)
+                        value = revenue - cost
+                        formatted_value = format_number(value)
+                        html_content += f'<td>{formatted_value}</td>'
+                    
+                    yearly_revenue = sum(st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                    yearly_cost = sum(st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                    yearly_total = yearly_revenue - yearly_cost
+                    formatted_yearly_total = format_number(yearly_total)
+                    html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+            else:
+                for year in sorted(years_dict.keys()):
+                    yearly_revenue = sum(st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                    yearly_cost = sum(st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0) for month in years_dict[year])
+                    yearly_total = yearly_revenue - yearly_cost
+                    formatted_yearly_total = format_number(yearly_total)
+                    html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+            html_content += '</tr>'
     
-    for category in gross_profit_categories:
-        html_content += '<tr>'
-        html_content += f'<td>  {category}</td>'
+    # Total Gross Profit row (only show if include_gross_margin is True)
+    if include_gross_margin:
+        html_content += '<tr class="total-row supplemental-data">'
+        html_content += '<td style="color: #666666; font-style: italic;">Total Gross Profit (Memo)*</td>'
         if show_monthly:
             for year in sorted(years_dict.keys()):
                 for month in years_dict[year]:
-                    revenue = st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0)
-                    cost = st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0)
-                    value = revenue - cost
+                    value = total_gross_profit.get(month, 0)
                     formatted_value = format_number(value)
-                    html_content += f'<td>{formatted_value}</td>'
-                
-                yearly_revenue = sum(st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0) for month in years_dict[year])
-                yearly_cost = sum(st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0) for month in years_dict[year])
-                yearly_total = yearly_revenue - yearly_cost
+                    html_content += f'<td style="color: #666666; font-style: italic;">{formatted_value}</td>'
+                yearly_total = sum(total_gross_profit.get(month, 0) for month in years_dict[year])
                 formatted_yearly_total = format_number(yearly_total)
-                html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+                html_content += f'<td class="year-total" style="color: #666666; font-style: italic;">{formatted_yearly_total}</td>'
         else:
             for year in sorted(years_dict.keys()):
-                yearly_revenue = sum(st.session_state.model_data.get("revenue", {}).get(category, {}).get(month, 0) for month in years_dict[year])
-                yearly_cost = sum(st.session_state.model_data.get("cogs", {}).get(category, {}).get(month, 0) for month in years_dict[year])
-                yearly_total = yearly_revenue - yearly_cost
+                yearly_total = sum(total_gross_profit.get(month, 0) for month in years_dict[year])
                 formatted_yearly_total = format_number(yearly_total)
-                html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+                html_content += f'<td class="year-total" style="color: #666666; font-style: italic;">{formatted_yearly_total}</td>'
         html_content += '</tr>'
-    
-    # Total Gross Profit row
-    html_content += '<tr class="total-row">'
-    html_content += '<td>Total Gross Profit</td>'
-    if show_monthly:
-        for year in sorted(years_dict.keys()):
-            for month in years_dict[year]:
-                value = total_gross_profit.get(month, 0)
-                formatted_value = format_number(value)
-                html_content += f'<td>{formatted_value}</td>'
-            yearly_total = sum(total_gross_profit.get(month, 0) for month in years_dict[year])
-            formatted_yearly_total = format_number(yearly_total)
-            html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
-    else:
-        for year in sorted(years_dict.keys()):
-            yearly_total = sum(total_gross_profit.get(month, 0) for month in years_dict[year])
-            formatted_yearly_total = format_number(yearly_total)
-            html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
-    html_content += '</tr>'
     
     # Gross Margin section (if enabled)
     if include_gross_margin:
-        html_content += '<tr class="section-header">'
+        html_content += '<tr class="section-header supplemental-data">'
         html_content += '<td>Gross Margin %</td>'
         for col in data_columns:
             html_content += '<td></td>'
         html_content += '</tr>'
         
         for category in gross_profit_categories:
-            html_content += '<tr>'
+            html_content += '<tr class="supplemental-data">'
             html_content += f'<td>  {category}</td>'
             if show_monthly:
                 for year in sorted(years_dict.keys()):
@@ -1318,32 +1341,32 @@ def create_comprehensive_income_statement(show_monthly=True, include_gross_margi
             html_content += '</tr>'
         
         # Total Gross Margin row
-        html_content += '<tr class="total-row">'
-        html_content += '<td>Total Gross Margin %</td>'
+        html_content += '<tr class="total-row supplemental-data">'
+        html_content += '<td style="color: #666666; font-style: italic;">Total Gross Margin % (Memo)*</td>'
         if show_monthly:
             for year in sorted(years_dict.keys()):
                 for month in years_dict[year]:
                     value = total_gross_margin.get(month, 0)
                     formatted_value = format_percentage(value)
-                    html_content += f'<td>{formatted_value}</td>'
+                    html_content += f'<td style="color: #666666; font-style: italic;">{formatted_value}</td>'
                 
                 yearly_gross_profit = sum(total_gross_profit.get(month, 0) for month in years_dict[year])
                 yearly_revenue = sum(total_revenue.get(month, 0) for month in years_dict[year])
                 yearly_percentage = (yearly_gross_profit / yearly_revenue * 100) if yearly_revenue > 0 else 0
                 formatted_yearly_total = format_percentage(yearly_percentage)
-                html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+                html_content += f'<td class="year-total" style="color: #666666; font-style: italic;">{formatted_yearly_total}</td>'
         else:
             for year in sorted(years_dict.keys()):
                 yearly_gross_profit = sum(total_gross_profit.get(month, 0) for month in years_dict[year])
                 yearly_revenue = sum(total_revenue.get(month, 0) for month in years_dict[year])
                 yearly_percentage = (yearly_gross_profit / yearly_revenue * 100) if yearly_revenue > 0 else 0
                 formatted_yearly_total = format_percentage(yearly_percentage)
-                html_content += f'<td class="year-total">{formatted_yearly_total}</td>'
+                html_content += f'<td class="year-total" style="color: #666666; font-style: italic;">{formatted_yearly_total}</td>'
         html_content += '</tr>'
     
     # SG&A section header
     html_content += '<tr class="section-header">'
-    html_content += '<td>SG&A Expenses</td>'
+    html_content += '<td>Operating Expenses</td>'
     for col in data_columns:
         html_content += '<td></td>'
     html_content += '</tr>'
@@ -1370,7 +1393,7 @@ def create_comprehensive_income_statement(show_monthly=True, include_gross_margi
     
     # Total SG&A row
     html_content += '<tr class="total-row">'
-    html_content += '<td>Total SG&A Expenses</td>'
+    html_content += '<td>Total Operating Expenses</td>'
     if show_monthly:
         for year in sorted(years_dict.keys()):
             for month in years_dict[year]:
@@ -1705,45 +1728,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Unified Navigation Bar
-st.markdown('<div class="nav-section-header">🧭 Dashboard Navigation</div>', unsafe_allow_html=True)
 
-nav_col1, nav_col2, nav_col3, nav_col4, nav_col5, nav_col6, nav_col7, nav_col8 = st.columns(8)
-
-with nav_col1:
-    if st.button("🏠 Home", key="nav_home", use_container_width=True):
-        st.info("Run: streamlit run home.py")
-
-with nav_col2:
-    if st.button("📊 KPIs", key="nav_kpi", use_container_width=True):
-        st.info("Run: streamlit run kpi_dashboard.py")
-
-with nav_col3:
-    if st.button("📈 Income", key="nav_income", use_container_width=True):
-        st.info("Run: streamlit run financial_model.py")
-
-with nav_col4:
-    if st.button("💰 Liquidity", key="nav_liquidity", use_container_width=True):
-        st.info("Run: streamlit run liquidity_model.py")
-
-with nav_col5:
-    if st.button("💵 Revenue", key="nav_revenue", use_container_width=True):
-        st.info("Run: streamlit run revenue_assumptions.py")
-
-with nav_col6:
-    if st.button("👥 Headcount", key="nav_headcount", use_container_width=True):
-        st.info("Run: streamlit run payroll_model.py")
-
-with nav_col7:
-    if st.button("🔍 Gross Profit", key="nav_gross", use_container_width=True):
-        st.info("Run: streamlit run gross_profit_model.py")
-
-with nav_col8:
-    if st.button("☁️ Hosting", key="nav_hosting", use_container_width=True):
-        st.info("Run: streamlit run hosting_costs_model.py")
-
-# Add visual separator after navigation
-st.markdown("---")
 
 # View toggle
 view_col1, view_col2 = st.columns([0.75, 3.25])
@@ -1758,6 +1743,12 @@ show_monthly = view_mode == "Monthly + Yearly"
 
 # COMPREHENSIVE INCOME STATEMENT
 st.markdown('<div class="section-header">📊 Income Statement</div>', unsafe_allow_html=True)
+
+# Add basis of presentation note
+st.markdown("""
+**Basis of Presentation:** This income statement is presented on a cash basis of accounting, with revenue recognized upon cash receipt. Due to the timing difference between upfront cash collections and costs incurred over time, period-over-period margins may not reflect the economic substance of our contracts. The Cost of Sales and Gross Profit sections are presented as supplemental information only to illustrate economic margins and are not included in the net income calculation, as these costs are already captured within Operating Expenses.
+""")
+st.markdown("")  # Add some spacing
 st.info("📝 Data populated from Revenue, Gross Profit, and Liquidity dashboards")
 
 # Ensure we have the latest revenue calculations
@@ -1822,10 +1813,10 @@ for month in months:
 # Calculate net income
 net_income = {}
 for month in months:
-    net_income[month] = total_gross_profit[month] - total_sga[month]
+    net_income[month] = total_revenue[month] - total_sga[month]
 
 # Toggle for gross margin display
-show_gross_margin = st.checkbox("Show Gross Margin %", value=False, help="Toggle to show/hide gross margin percentage in the income statement")
+show_gross_margin = st.checkbox("Show Supplemental Gross Profit Data", value=False, help="Toggle to show/hide the entire Cost of Sales section including gross profit analysis")
 
 if show_gross_margin:
     # Calculate gross margin data
@@ -1917,7 +1908,7 @@ with col5:
     total_sga_sum = sum(total_sga.get(month, 0) for month in filtered_months)
     st.markdown(f"""
     <div class="metric-container">
-        <h4 style="color: #00D084; margin: 0;">Total SG&A Expenses</h4>
+        <h4 style="color: #00D084; margin: 0;">Total Operating Expenses</h4>
         <h2 style="margin: 0.5rem 0 0 0;">${total_sga_sum:,.0f}</h2>
     </div>
     """, unsafe_allow_html=True)
@@ -1941,21 +1932,23 @@ st.markdown("") # Small spacing
 chart_type_col1, chart_type_col2 = st.columns([0.75, 3.25])
 with chart_type_col1:
     # Get current index based on session state
-    chart_options = ["Total Revenue", "Total Cost of Sales", "Total Gross Profit", "Gross Margin", "Total SG&A Expenses", "Total Net Income"]
+    chart_options = ["Total Revenue", "Revenue by Stream", "Total Cost of Sales", "Total Gross Profit", "Gross Margin", "Total Operating Expenses", "Total Net Income"]
     current_type = st.session_state.get("income_chart_type", "revenue")
     
     if current_type == "revenue":
         current_index = 0
-    elif current_type == "cogs":
+    elif current_type == "revenue_by_stream":
         current_index = 1
-    elif current_type == "gross_profit":
+    elif current_type == "cogs":
         current_index = 2
-    elif current_type == "gross_margin":
+    elif current_type == "gross_profit":
         current_index = 3
-    elif current_type == "sga":
+    elif current_type == "gross_margin":
         current_index = 4
-    else:  # net_income
+    elif current_type == "sga":
         current_index = 5
+    else:  # net_income
+        current_index = 6
     
     selected_chart = st.selectbox(
         "Select chart type:",
@@ -1967,13 +1960,15 @@ with chart_type_col1:
     # Update session state based on selection
     if selected_chart == "Total Revenue":
         st.session_state.income_chart_type = "revenue"
+    elif selected_chart == "Revenue by Stream":
+        st.session_state.income_chart_type = "revenue_by_stream"
     elif selected_chart == "Total Cost of Sales":
         st.session_state.income_chart_type = "cogs"
     elif selected_chart == "Total Gross Profit":
         st.session_state.income_chart_type = "gross_profit"
     elif selected_chart == "Gross Margin":
         st.session_state.income_chart_type = "gross_margin"
-    elif selected_chart == "Total SG&A Expenses":
+    elif selected_chart == "Total Operating Expenses":
         st.session_state.income_chart_type = "sga"
     else:  # Total Net Income
         st.session_state.income_chart_type = "net_income"
@@ -1991,6 +1986,14 @@ if summary_period == "All Years":
         year_months = years_dict[year]
         if chart_type == "revenue":
             chart_data[str(year)] = sum(total_revenue.get(month, 0) for month in year_months)
+        elif chart_type == "revenue_by_stream":
+            # For stacked chart, we need individual stream data
+            chart_data[str(year)] = {
+                'Subscription': sum(st.session_state.model_data.get("revenue", {}).get("Subscription", {}).get(month, 0) for month in year_months),
+                'Implementation': sum(st.session_state.model_data.get("revenue", {}).get("Implementation", {}).get(month, 0) for month in year_months),
+                'Transactional': sum(st.session_state.model_data.get("revenue", {}).get("Transactional", {}).get(month, 0) for month in year_months),
+                'Maintenance': sum(st.session_state.model_data.get("revenue", {}).get("Maintenance", {}).get(month, 0) for month in year_months)
+            }
         elif chart_type == "cogs":
             chart_data[str(year)] = sum(total_cost_of_sales.get(month, 0) for month in year_months)
         elif chart_type == "gross_profit":
@@ -2006,10 +2009,21 @@ if summary_period == "All Years":
             chart_data[str(year)] = sum(net_income.get(month, 0) for month in year_months)
     
     # Create DataFrame for chart
-    chart_df = pd.DataFrame({
-        'Period': list(chart_data.keys()),
-        'Value': list(chart_data.values())
-    })
+    if chart_type == "revenue_by_stream":
+        # For stacked revenue chart, create separate data structure
+        periods = list(chart_data.keys())
+        chart_df = pd.DataFrame({
+            'Period': periods,
+            'Subscription': [chart_data[period]['Subscription'] for period in periods],
+            'Implementation': [chart_data[period]['Implementation'] for period in periods],
+            'Transactional': [chart_data[period]['Transactional'] for period in periods],
+            'Maintenance': [chart_data[period]['Maintenance'] for period in periods]
+        })
+    else:
+        chart_df = pd.DataFrame({
+            'Period': list(chart_data.keys()),
+            'Value': list(chart_data.values())
+        })
     chart_title = f"{selected_chart} by Year"
     
 else:
@@ -2032,6 +2046,14 @@ else:
         if matching_month:
             if chart_type == "revenue":
                 chart_data[month_name] = total_revenue.get(matching_month, 0)
+            elif chart_type == "revenue_by_stream":
+                # For stacked chart, we need individual stream data
+                chart_data[month_name] = {
+                    'Subscription': st.session_state.model_data.get("revenue", {}).get("Subscription", {}).get(matching_month, 0),
+                    'Implementation': st.session_state.model_data.get("revenue", {}).get("Implementation", {}).get(matching_month, 0),
+                    'Transactional': st.session_state.model_data.get("revenue", {}).get("Transactional", {}).get(matching_month, 0),
+                    'Maintenance': st.session_state.model_data.get("revenue", {}).get("Maintenance", {}).get(matching_month, 0)
+                }
             elif chart_type == "cogs":
                 chart_data[month_name] = total_cost_of_sales.get(matching_month, 0)
             elif chart_type == "gross_profit":
@@ -2049,10 +2071,21 @@ else:
             chart_data[month_name] = 0
     
     # Create DataFrame for chart
-    chart_df = pd.DataFrame({
-        'Period': list(chart_data.keys()),
-        'Value': list(chart_data.values())
-    })
+    if chart_type == "revenue_by_stream":
+        # For stacked revenue chart, create separate data structure
+        periods = list(chart_data.keys())
+        chart_df = pd.DataFrame({
+            'Period': periods,
+            'Subscription': [chart_data[period]['Subscription'] for period in periods],
+            'Implementation': [chart_data[period]['Implementation'] for period in periods],
+            'Transactional': [chart_data[period]['Transactional'] for period in periods],
+            'Maintenance': [chart_data[period]['Maintenance'] for period in periods]
+        })
+    else:
+        chart_df = pd.DataFrame({
+            'Period': list(chart_data.keys()),
+            'Value': list(chart_data.values())
+        })
     chart_title = f"{selected_chart} - {summary_period}"
 
 # Display the chart
@@ -2060,31 +2093,50 @@ if not chart_df.empty:
     # Create Plotly figure for cleaner appearance
     fig = go.Figure()
     
-    # Set color based on chart type
-    if chart_type == "revenue":
-        color = '#00D084'  # Green for revenue
-    elif chart_type == "cogs":
-        color = '#dc3545'  # Red for costs  
-    elif chart_type == "gross_profit":
-        color = '#00B574'  # Dark green for gross profit
-    elif chart_type == "gross_margin":
-        color = '#3498DB'  # Blue for margin percentage
-    elif chart_type == "sga":
-        color = '#F39C12'  # Orange for SG&A expenses
-    else:  # net_income
-        # Use conditional coloring for net income
-        colors = ['#00D084' if val >= 0 else '#dc3545' for val in chart_df['Value']]
-        color = colors
-    
-    # Add bar trace
-    fig.add_trace(go.Bar(
-        x=chart_df['Period'],
-        y=chart_df['Value'],
-        marker_color=color,
-        opacity=0.7,
-        hovertemplate='<b>%{x}</b><br>' + ('$%{y:,.0f}' if chart_type != "gross_margin" else '%{y:.1f}%') + '<extra></extra>',
-        showlegend=False
-    ))
+    if chart_type == "revenue_by_stream":
+        # Create stacked bar chart for revenue streams
+        revenue_streams = ['Subscription', 'Implementation', 'Transactional', 'Maintenance']
+        colors = ['#00D084', '#3498DB', '#F39C12', '#9B59B6']  # SHAED colors
+        
+        for i, stream in enumerate(revenue_streams):
+            fig.add_trace(go.Bar(
+                name=stream,
+                x=chart_df['Period'],
+                y=chart_df[stream],
+                marker_color=colors[i],
+                hovertemplate=f'<b>{stream}</b><br>%{{x}}<br>${{y:,.0f}}<extra></extra>',
+                opacity=0.8
+            ))
+        
+        # Update layout for stacked bars
+        fig.update_layout(barmode='stack')
+        
+    else:
+        # Set color based on chart type
+        if chart_type == "revenue":
+            color = '#00D084'  # Green for revenue
+        elif chart_type == "cogs":
+            color = '#dc3545'  # Red for costs  
+        elif chart_type == "gross_profit":
+            color = '#00B574'  # Dark green for gross profit
+        elif chart_type == "gross_margin":
+            color = '#3498DB'  # Blue for margin percentage
+        elif chart_type == "sga":
+            color = '#F39C12'  # Orange for SG&A expenses
+        else:  # net_income
+            # Use conditional coloring for net income
+            colors = ['#00D084' if val >= 0 else '#dc3545' for val in chart_df['Value']]
+            color = colors
+        
+        # Add bar trace
+        fig.add_trace(go.Bar(
+            x=chart_df['Period'],
+            y=chart_df['Value'],
+            marker_color=color,
+            opacity=0.7,
+            hovertemplate='<b>%{x}</b><br>' + ('$%{y:,.0f}' if chart_type != "gross_margin" else '%{y:.1f}%') + '<extra></extra>',
+            showlegend=False
+        ))
     
     # Update layout with clean styling
     fig.update_layout(
@@ -2118,70 +2170,168 @@ if not chart_df.empty:
 st.markdown("---")
 st.markdown('<div class="section-header">💾 Data Management</div>', unsafe_allow_html=True)
 
-col1, col2, col3, col4 = st.columns(4)
+data_col1, data_col2, data_col3, data_col4, data_col5, data_col6 = st.columns([1, 1, 1, 1, 0.75, 1.25])
 
-with col1:
-    # Auto-save revenue data silently
-    try:
-        calculate_all_revenue()
-        save_revenue_calculations_to_database(st.session_state.model_data)
-    except Exception as e:
-        pass  # Silent error handling
+with data_col1:
+    if st.button("💾 Save Data", type="primary", use_container_width=True):
+        try:
+            calculate_all_revenue()
+            save_revenue_calculations_to_database(st.session_state.model_data)
+            save_income_statement_to_database(st.session_state.model_data)
+            save_all_to_supabase_enhanced(st.session_state.model_data)
+            st.success("✅ Data saved successfully!")
+        except Exception as e:
+            st.error(f"❌ Error saving data: {str(e)}")
 
-with col2:
-    # Auto-save income statement silently
-    try:
-        save_income_statement_to_database(st.session_state.model_data)
-    except Exception as e:
-        pass  # Silent error handling
-
-with col3:
-    # Auto-save all data silently
-    try:
-        save_all_to_supabase_enhanced(st.session_state.model_data)
-    except Exception as e:
-        pass  # Silent error handling
-
-with col4:
-    if st.button("📂 Load Data", type="primary", use_container_width=True):
+with data_col2:
+    if st.button("📂 Load Data", type="secondary", use_container_width=True):
         try:
             st.session_state.model_data = load_data_from_source()
+            st.success("✅ Data loaded successfully!")
             st.rerun()
         except Exception as e:
-            pass  # Silent error handling
+            st.error(f"❌ Error loading data: {str(e)}")
 
-with st.expander("🔧 Advanced Options"):
-    st.info("Additional data management tools available here")
-    
-    col_a, col_b, col_c = st.columns(3)
-    with col_a:
-        if st.button("🧹 Fix Categories", use_container_width=True):
-            try:
-                # Clean up cash disbursement categories
-                success = clean_up_cash_disbursement_categories(st.session_state.model_data)
-                if success:
-                    st.success("✅ Categories cleaned up successfully!")
-                    st.rerun()
-                else:
-                    st.error("❌ Failed to clean up categories")
-            except Exception as e:
-                st.error(f"Cleanup error: {str(e)}")
-    
-    with col_b:
-        if st.button("🔍 Validate Supabase Data", use_container_width=True):
-            try:
-                                  # Supabase validation now integrated in consolidated database.py
-                  st.info("📊 Database validation integrated in consolidated database.py")
-            except Exception as e:
-                st.error(f"Validation error: {str(e)}")
-    
-    with col_c:
-        if st.button("🌐 Supabase Info", use_container_width=True):
-            try:
-                # Supabase info now integrated in consolidated database.py
-                show_supabase_access_info()
-            except Exception as e:
-                st.error(f"Info error: {str(e)}")
+with data_col3:
+    # Create Excel export data
+    try:
+        import tempfile
+        import os
+        from datetime import datetime
+        
+        # Generate timestamp and filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"SHAED_Income_Statement_{timestamp}.xlsx"
+        
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+            temp_path = tmp_file.name
+        
+        # Create Excel writer
+        with pd.ExcelWriter(temp_path, engine='openpyxl') as writer:
+            # Export Revenue Data
+            if "revenue" in st.session_state.model_data:
+                revenue_data = st.session_state.model_data["revenue"]
+                revenue_df = pd.DataFrame(revenue_data)
+                revenue_df.index.name = 'Month'
+                revenue_df.to_excel(writer, sheet_name='Revenue')
+            
+            # Export COGS Data
+            if "cogs" in st.session_state.model_data:
+                cogs_data = st.session_state.model_data["cogs"]
+                cogs_df = pd.DataFrame(cogs_data)
+                cogs_df.index.name = 'Month'
+                cogs_df.to_excel(writer, sheet_name='COGS')
+            
+            # Export Operating Expenses
+            if "operating_expenses" in st.session_state.model_data:
+                opex_data = st.session_state.model_data["operating_expenses"]
+                opex_df = pd.DataFrame(opex_data)
+                opex_df.index.name = 'Month'
+                opex_df.to_excel(writer, sheet_name='Operating Expenses')
+            
+            # Export Income Statement Summary
+            months = list(st.session_state.model_data.get("revenue", {}).get("Subscription", {}).keys()) if "revenue" in st.session_state.model_data else []
+            if months:
+                income_statement = []
+                
+                for month in months:
+                    # Calculate revenue
+                    total_revenue = sum(
+                        st.session_state.model_data.get("revenue", {}).get(stream, {}).get(month, 0)
+                        for stream in ["Subscription", "Transactional", "Implementation", "Maintenance"]
+                    )
+                    
+                    # Calculate COGS
+                    total_cogs = sum(
+                        st.session_state.model_data.get("cogs", {}).get(stream, {}).get(month, 0)
+                        for stream in ["Subscription", "Transactional", "Implementation", "Maintenance"]
+                    )
+                    
+                    # Calculate Operating Expenses
+                    total_opex = sum(
+                        st.session_state.model_data.get("operating_expenses", {}).get(category, {}).get(month, 0)
+                        for category in st.session_state.model_data.get("operating_expenses", {}).keys()
+                    )
+                    
+                    # Calculate metrics
+                    gross_profit = total_revenue - total_cogs
+                    gross_margin = (gross_profit / total_revenue * 100) if total_revenue > 0 else 0
+                    operating_income = gross_profit - total_opex
+                    operating_margin = (operating_income / total_revenue * 100) if total_revenue > 0 else 0
+                    
+                    income_statement.append({
+                        'Month': month,
+                        'Total Revenue': total_revenue,
+                        'Total COGS': total_cogs,
+                        'Gross Profit': gross_profit,
+                        'Gross Margin %': gross_margin,
+                        'Total Operating Expenses': total_opex,
+                        'Operating Income': operating_income,
+                        'Operating Margin %': operating_margin
+                    })
+                
+                if income_statement:
+                    income_df = pd.DataFrame(income_statement)
+                    income_df.to_excel(writer, sheet_name='Income Statement Summary', index=False)
+            
+            # Export Chart Data for visualization recreation
+            if months:
+                chart_data = []
+                for month in months:
+                    total_revenue = sum(
+                        st.session_state.model_data.get("revenue", {}).get(stream, {}).get(month, 0)
+                        for stream in ["Subscription", "Transactional", "Implementation", "Maintenance"]
+                    )
+                    total_cogs = sum(
+                        st.session_state.model_data.get("cogs", {}).get(stream, {}).get(month, 0)
+                        for stream in ["Subscription", "Transactional", "Implementation", "Maintenance"]
+                    )
+                    total_opex = sum(
+                        st.session_state.model_data.get("operating_expenses", {}).get(category, {}).get(month, 0)
+                        for category in st.session_state.model_data.get("operating_expenses", {}).keys()
+                    )
+                    
+                    chart_data.append({
+                        'Month': month,
+                        'Revenue': total_revenue,
+                        'COGS': total_cogs,
+                        'Operating Expenses': total_opex,
+                        'Gross Profit': total_revenue - total_cogs,
+                        'Operating Income': total_revenue - total_cogs - total_opex
+                    })
+                
+                if chart_data:
+                    chart_df = pd.DataFrame(chart_data)
+                    chart_df.to_excel(writer, sheet_name='Chart Data', index=False)
+        
+        # Read the file data for download
+        with open(temp_path, 'rb') as f:
+            excel_data = f.read()
+        
+        # Clean up temp file
+        os.unlink(temp_path)
+        
+        # Direct download button that triggers immediately
+        st.download_button(
+            label="📊 Export Excel",
+            data=excel_data,
+            file_name=filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            use_container_width=True
+        )
+        
+    except ImportError:
+        # Fallback button if openpyxl not available
+        if st.button("📊 Export Excel", type="primary", use_container_width=True):
+            st.error("❌ Excel export requires openpyxl. Please install: pip install openpyxl")
+    except Exception as e:
+        # Fallback button if there's an error
+        if st.button("📊 Export Excel", type="primary", use_container_width=True):
+            st.error(f"❌ Error creating Excel file: {str(e)}")
+
+
 
 # Footer
 st.markdown("""
@@ -2191,23 +2341,3 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Auto-save all data silently - no manual buttons needed
-# Save Revenue Data
-try:
-    from database import save_revenue_calculations_to_database
-    save_revenue_calculations_to_database(st.session_state.model_data)
-except Exception as e:
-    pass  # Silent error handling
-
-# Save Income Statement  
-try:
-    from database import save_income_statement_to_database
-    save_income_statement_to_database(st.session_state.model_data)
-except Exception as e:
-    pass  # Silent error handling
-
-# Save All Data
-try:
-    save_data_to_source(st.session_state.model_data)
-except Exception as e:
-    pass  # Silent error handling

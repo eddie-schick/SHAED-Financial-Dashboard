@@ -8,6 +8,204 @@ st.set_page_config(
     layout="wide"
 )
 
+# Password protection function
+def check_password():
+    """Returns `True` if the user had the correct password."""
+    
+    def password_entered():
+        """Checks whether a password entered by the user is correct."""
+        if st.session_state["password"] == st.secrets["password"]:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]  # don't store password
+        else:
+            st.session_state["password_correct"] = False
+
+    if "password_correct" not in st.session_state:
+        # First run, show login form
+        st.markdown("""
+        <style>
+            .login-container {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-height: 70vh;
+                background-color: #f8f9fa;
+            }
+            .login-form {
+                background: white;
+                padding: 3rem;
+                border-radius: 15px;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+                text-align: center;
+                max-width: 400px;
+                width: 100%;
+            }
+            .login-header {
+                background: linear-gradient(90deg, #00D084 0%, #00B574 100%);
+                color: white;
+                padding: 2rem;
+                border-radius: 10px;
+                margin-bottom: 2rem;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            }
+            .login-header h1 {
+                margin: 0;
+                font-size: 2.5rem;
+                font-weight: 700;
+            }
+            .login-header p {
+                margin: 0.5rem 0 0 0;
+                font-size: 1.1rem;
+                opacity: 0.9;
+            }
+            .stTextInput > div > div > input {
+                border: 2px solid #e1e5e9;
+                border-radius: 8px;
+                padding: 0.75rem;
+                font-size: 1rem;
+                transition: border-color 0.3s ease;
+            }
+            .stTextInput > div > div > input:focus {
+                border-color: #00D084;
+                box-shadow: 0 0 0 2px rgba(0, 208, 132, 0.2);
+            }
+            .stButton > button {
+                background: linear-gradient(90deg, #00D084 0%, #00B574 100%);
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 0.75rem 2rem;
+                font-weight: 600;
+                font-size: 1rem;
+                transition: all 0.3s ease;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                width: 100%;
+                margin-top: 1rem;
+            }
+            .stButton > button:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        # Create centered login form
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.markdown("""
+            <div class="login-header">
+                <h1>SHAED Financial Model</h1>
+                <p>Please enter password to continue</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.text_input("Password", type="password", on_change=password_entered, key="password")
+            
+            if "password_correct" in st.session_state and not st.session_state["password_correct"]:
+                st.error("😞 Password incorrect")
+        
+        return False
+        
+    elif not st.session_state["password_correct"]:
+        # Password not correct, show input + error.
+        st.markdown("""
+        <style>
+            .login-container {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-height: 70vh;
+                background-color: #f8f9fa;
+            }
+            .login-form {
+                background: white;
+                padding: 3rem;
+                border-radius: 15px;
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+                text-align: center;
+                max-width: 400px;
+                width: 100%;
+            }
+            .login-header {
+                background: linear-gradient(90deg, #00D084 0%, #00B574 100%);
+                color: white;
+                padding: 2rem;
+                border-radius: 10px;
+                margin-bottom: 2rem;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            }
+            .login-header h1 {
+                margin: 0;
+                font-size: 2.5rem;
+                font-weight: 700;
+            }
+            .login-header p {
+                margin: 0.5rem 0 0 0;
+                font-size: 1.1rem;
+                opacity: 0.9;
+            }
+            .stTextInput > div > div > input {
+                border: 2px solid #e1e5e9;
+                border-radius: 8px;
+                padding: 0.75rem;
+                font-size: 1rem;
+                transition: border-color 0.3s ease;
+            }
+            .stTextInput > div > div > input:focus {
+                border-color: #00D084;
+                box-shadow: 0 0 0 2px rgba(0, 208, 132, 0.2);
+            }
+            .stButton > button {
+                background: linear-gradient(90deg, #00D084 0%, #00B574 100%);
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 0.75rem 2rem;
+                font-weight: 600;
+                font-size: 1rem;
+                transition: all 0.3s ease;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                width: 100%;
+                margin-top: 1rem;
+            }
+            .stButton > button:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        # Create centered login form
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.markdown("""
+            <div class="login-header">
+                <h1>SHAED Financial Model</h1>
+                <p>Please enter password to continue</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.text_input("Password", type="password", on_change=password_entered, key="password")
+            st.error("😞 Password incorrect")
+        
+        return False
+    else:
+        # Password correct.
+        return True
+
+# Check authentication
+if not check_password():
+    st.stop()
+
+# Add logout functionality to sidebar
+with st.sidebar:
+    st.markdown("---")
+    if st.button("🚪 Logout", key="logout_button"):
+        # Clear all session state variables
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+
 # Custom CSS for SHAED branding
 st.markdown("""
 <style>
@@ -223,7 +421,7 @@ with col4:
     </div>
     """, unsafe_allow_html=True)
     if st.button("Open Revenue Dashboard", key="revenue_btn"):
-        st.switch_page("pages/4_💵_Revenue_Assumptions.py")
+        st.switch_page("pages/4__Revenue_Assumptions.py")
 
 with col5:
     st.markdown("""
@@ -245,18 +443,7 @@ with col6:
     if st.button("Open Gross Profit Dashboard", key="gross_profit_btn"):
         st.switch_page("pages/6__Gross_Profit_Analysis.py")
 
-# Third row with one card
-col7, col8, col9 = st.columns([1, 1, 1])
-
-with col8:
-    st.markdown("""
-    <div class="nav-card">
-        <h3>☁️ Hosting Costs</h3>
-        <p>Infrastructure costs and scaling analysis</p>
-    </div>
-    """, unsafe_allow_html=True)
-    if st.button("Open Hosting Dashboard", key="hosting_btn"):
-        st.switch_page("pages/7__Hosting_Costs.py")
+# Third row removed - hosting costs section deleted
 
 # Features Section
 st.markdown('<div class="section-header">✨ Platform Features</div>', unsafe_allow_html=True)
@@ -297,49 +484,3 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Sidebar Information
-with st.sidebar:
-    st.markdown("### 🏠 Dashboard Home")
-    st.markdown("---")
-    
-    st.markdown("#### Quick Links")
-    
-    if st.button("📊 KPIs", key="sidebar_kpi"):
-        st.switch_page("pages/1__KPIs_Dashboard.py")
-    if st.button("📈 Income Statement", key="sidebar_income"):
-        st.switch_page("pages/2__Income_Statement.py")
-    if st.button("💰 Liquidity", key="sidebar_liquidity"):
-        st.switch_page("pages/3__Liquidity_Forecast.py")
-    if st.button("💵 Revenue", key="sidebar_revenue"):
-        st.switch_page("pages/4_💵_Revenue_Assumptions.py")
-    if st.button("👥 Headcount", key="sidebar_headcount"):
-        st.switch_page("pages/5__Headcount_Planning.py")
-    if st.button("🔍 Gross Profit", key="sidebar_gross"):
-        st.switch_page("pages/6__Gross_Profit_Analysis.py")
-    if st.button("☁️ Hosting", key="sidebar_hosting"):
-        st.switch_page("pages/7__Hosting_Costs.py")
-    
-    st.markdown("---")
-    st.markdown("#### 📊 Data Management")
-    
-    # Using 100% Supabase Database
-    st.session_state.data_source = "Supabase"
-    
-    st.markdown("""
-    **Primary Backend:** Supabase Database (100% Cloud)
-    **Status:** All data stored in real-time cloud database
-    """)
-    
-    st.success("✅ Supabase connected")
-    
-    if st.button("🔍 Test Supabase Connection"):
-        try:
-            from database import init_supabase
-            supabase = init_supabase()
-            # Test query
-            result = supabase.table('business_segments').select('id').limit(1).execute()
-            st.success("✅ Connection successful!")
-        except Exception as e:
-            st.error(f"❌ Connection failed: {str(e)}")
-    
-    st.info("💾 All data is stored and synced in real-time with Supabase - no local files needed")

@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date
 import plotly.graph_objects as go
-from database import load_data, save_data, load_data_from_source, save_data_to_source, init_supabase, save_liquidity_data_to_database
+from database import load_data, save_data, load_data_from_source, save_data_to_source, init_supabase, save_liquidity_data_to_database, load_liquidity_data_from_database, load_starting_balance_from_database, save_starting_balance_to_database
 
 # Payroll integration functions
 
@@ -10,7 +10,7 @@ def load_sga_categories_from_database():
     """Load SG&A expense categories from the expense_categories table"""
     try:
         supabase = init_supabase()
-        response = supabase.table('expense_categories').select('*').eq('category_type', 'sga').order('id').execute()
+        response = supabase.table('expense_categories').select('*').eq('category_type', 'sga').order('id').limit(10000).execute()
         
         categories = {}
         for row in response.data:
@@ -23,6 +23,10 @@ def load_sga_categories_from_database():
         st.error(f"Error loading categories from database: {e}")
         # Fallback to default categories
         return get_default_sga_categories()
+
+# REMOVED: Old SGA expense loading function - now handled by load_liquidity_data_from_database
+
+# REMOVED: Old SGA expense saving function - now handled by save_liquidity_data_to_database
 
 def get_default_sga_categories():
     """Get the default SG&A categories as fallback"""
@@ -173,7 +177,7 @@ def calculate_monthly_contractor_costs():
     
     contractor_costs = {month: 0 for month in months}
     
-    for contractor_data in contractors.values():
+    for contractor_id, contractor_data in contractors.items():
         resources = contractor_data.get("resources", 0)
         hourly_rate = contractor_data.get("hourly_rate", 0)
         
@@ -230,10 +234,24 @@ def calculate_total_personnel_costs():
     return base_payroll, payroll_taxes, bonuses, contractor_costs, total_payroll_cost
 
 def update_liquidity_with_payroll(effective_month=None):
-    """Update liquidity model with calculated payroll and contractor costs from headcount tab"""
+    """Update liquidity model with total payroll and contractor costs from headcount tab"""
     
-    # Calculate costs using the same logic as the payroll model
-    base_payroll, payroll_taxes, bonuses, contractor_costs, total_payroll_cost = calculate_total_personnel_costs()
+    # Check if we have payroll data first
+    if "payroll_data" not in st.session_state.model_data:
+        st.error("❌ No headcount data found. Please ensure you have data in the Headcount Planning tab first.")
+        return
+    
+    # Calculate the totals directly (same way headcount tab does it)
+    # Base payroll, taxes, bonuses, contractor costs, total payroll cost
+    base_payroll, payroll_taxes, bonuses, contractor_costs, calculated_total_payroll = calculate_total_personnel_costs()
+    
+    # Calculate total payroll cost (base + taxes + bonuses) - same as headcount tab
+    total_payroll_costs = {}
+    for month in months:
+        total_payroll_costs[month] = base_payroll[month] + payroll_taxes[month] + bonuses[month]
+    
+    # Use contractor costs directly
+    total_contractor_costs = contractor_costs
     
     # Initialize liquidity data if needed
     if "liquidity_data" not in st.session_state.model_data:
@@ -241,42 +259,43 @@ def update_liquidity_with_payroll(effective_month=None):
     if "expenses" not in st.session_state.model_data["liquidity_data"]:
         st.session_state.model_data["liquidity_data"]["expenses"] = {}
     
-    # Initialize payroll and contractor categories if they don't exist
-    if "Payroll" not in st.session_state.model_data["liquidity_data"]["expenses"]:
-        st.session_state.model_data["liquidity_data"]["expenses"]["Payroll"] = {month: 0 for month in months}
-    if "Contractors" not in st.session_state.model_data["liquidity_data"]["expenses"]:
-        st.session_state.model_data["liquidity_data"]["expenses"]["Contractors"] = {month: 0 for month in months}
+    # FORCE complete overwrite - don't preserve any existing data
+    st.session_state.model_data["liquidity_data"]["expenses"]["Payroll"] = total_payroll_costs.copy()
+    st.session_state.model_data["liquidity_data"]["expenses"]["Contractors"] = total_contractor_costs.copy()
     
+    # Apply effective month logic if specified
     if effective_month:
-        # Find the index of the effective month
         try:
             effective_index = months.index(effective_month)
+            # Load existing data from database to preserve historical data
+            existing_data = load_liquidity_data_from_database()
+            if existing_data and "expenses" in existing_data:
+                # Preserve historical data for months before effective month
+                for i, month in enumerate(months):
+                    if i < effective_index:
+                        # Keep historical data
+                        if "Payroll" in existing_data["expenses"]:
+                            st.session_state.model_data["liquidity_data"]["expenses"]["Payroll"][month] = existing_data["expenses"]["Payroll"].get(month, 0)
+                        if "Contractors" in existing_data["expenses"]:
+                            st.session_state.model_data["liquidity_data"]["expenses"]["Contractors"][month] = existing_data["expenses"]["Contractors"].get(month, 0)
         except ValueError:
             st.error(f"Invalid effective month: {effective_month}")
-            return
-        
-        # Update only from effective month forward
-        current_payroll = st.session_state.model_data["liquidity_data"]["expenses"]["Payroll"].copy()
-        current_contractors = st.session_state.model_data["liquidity_data"]["expenses"]["Contractors"].copy()
-        
-        for i, month in enumerate(months):
-            if i >= effective_index:
-                # Use total_payroll_cost which includes base + taxes + bonuses
-                current_payroll[month] = total_payroll_cost[month]
-                current_contractors[month] = contractor_costs[month]
-        
-        st.session_state.model_data["liquidity_data"]["expenses"]["Payroll"] = current_payroll
-        st.session_state.model_data["liquidity_data"]["expenses"]["Contractors"] = current_contractors
-    else:
-        # Update all months - use total_payroll_cost which includes base + taxes + bonuses
-        st.session_state.model_data["liquidity_data"]["expenses"]["Payroll"] = total_payroll_cost
-        st.session_state.model_data["liquidity_data"]["expenses"]["Contractors"] = contractor_costs
     
     # Remove old categories if they exist
     old_categories = ["Total Personnel Costs", "Payroll Taxes & Benefits", "Employee Bonuses", "Payroll Expense", "Contractor Expense"]
     for old_cat in old_categories:
         if old_cat in st.session_state.model_data["liquidity_data"]["expenses"]:
             del st.session_state.model_data["liquidity_data"]["expenses"][old_cat]
+    
+    # Save updated payroll and contractor data to cash_flow table
+    try:
+        success = save_liquidity_data_to_database(st.session_state.model_data)
+        if success:
+            st.success("✅ Headcount data successfully saved to database!")
+        else:
+            st.error("❌ Failed to save headcount data to database")
+    except Exception as e:
+        st.error(f"❌ Error saving to database: {e}")
 
 # Configure page
 st.set_page_config(
@@ -284,6 +303,20 @@ st.set_page_config(
     page_icon="💰",
     layout="wide"
 )
+
+# Check authentication
+if "password_correct" not in st.session_state or not st.session_state.get("password_correct", False):
+    st.error("🔒 Please login from the Home page first.")
+    st.stop()
+
+# Add logout functionality to sidebar
+with st.sidebar:
+    st.markdown("---")
+    if st.button("🚪 Logout", key="logout_button"):
+        # Clear all session state variables
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
 
 # Custom CSS for SHAED branding
 st.markdown("""
@@ -328,17 +361,7 @@ st.markdown("""
         font-weight: 600;
     }
     
-    /* Dashboard Navigation header - centered */
-    .nav-section-header {
-        background-color: #00D084;
-        color: white;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1.5rem 0 1rem 0;
-        font-size: 1.2rem;
-        font-weight: 600;
-        text-align: center;
-    }
+
     
     /* Button styling */
     .stButton > button,
@@ -855,6 +878,18 @@ def load_data_from_month(effective_month=None) -> dict:
 # Initialize session state
 if 'model_data' not in st.session_state:
     st.session_state.model_data = load_data_from_source()
+    
+    # Ensure we have revenue data loaded for auto-sync
+    if not st.session_state.model_data:
+        st.session_state.model_data = {}
+    if "revenue" not in st.session_state.model_data:
+        # Try to load just revenue data if full data load failed
+        try:
+            full_data = load_data_from_source()
+            if full_data and "revenue" in full_data:
+                st.session_state.model_data["revenue"] = full_data["revenue"]
+        except Exception as e:
+            pass
 
 # Generate months from 2025-2030
 def get_months_2025_2030():
@@ -926,6 +961,23 @@ def initialize_liquidity_data():
     # Initialize other cash receipts
     if "other_cash_receipts" not in st.session_state.model_data["liquidity_data"]:
         st.session_state.model_data["liquidity_data"]["other_cash_receipts"] = {month: 0 for month in months}
+    
+    # SG&A expense amounts now loaded separately via load_liquidity_data_from_database
+    database_expenses = {}
+    
+    # Initialize expenses from database if available
+    if database_expenses:
+        if "expenses" not in st.session_state.model_data["liquidity_data"]:
+            st.session_state.model_data["liquidity_data"]["expenses"] = {}
+        
+        # Update with database values, ensuring all months are covered
+        for category, monthly_data in database_expenses.items():
+            if category not in st.session_state.model_data["liquidity_data"]["expenses"]:
+                st.session_state.model_data["liquidity_data"]["expenses"][category] = {month: 0 for month in months}
+            
+            # Update with database values
+            for month, amount in monthly_data.items():
+                st.session_state.model_data["liquidity_data"]["expenses"][category][month] = amount
     
     # Migration: Convert existing "cash_receipts" to "revenue"
     if "cash_receipts" in st.session_state.model_data["liquidity_data"]:
@@ -1158,6 +1210,7 @@ def create_expense_table_with_years(categories, show_monthly=True):
     )
     
     # Update session state with edited values (only for editable categories)
+    changes_made = False
     for i, category in enumerate(categories):
         # Skip auto-calculated categories
         is_auto_calc = st.session_state.model_data["liquidity_data"]["expense_categories"].get(category, {}).get("auto_calc", False)
@@ -1169,11 +1222,29 @@ def create_expense_table_with_years(categories, show_monthly=True):
                 for month in years_dict[year]:
                     if month in edited_df.columns:
                         value = edited_df.iloc[i][month]
-                        # Convert to positive for storage (expenses are stored as positive, displayed as negative)
+                        new_value = abs(float(value)) if value != 0 else 0
+                        
                         # Ensure category exists in expenses dictionary
                         if category not in st.session_state.model_data["liquidity_data"]["expenses"]:
                             st.session_state.model_data["liquidity_data"]["expenses"][category] = {month: 0 for month in months}
-                        st.session_state.model_data["liquidity_data"]["expenses"][category][month] = abs(float(value)) if value != 0 else 0
+                        
+                        # Check if value changed
+                        old_value = st.session_state.model_data["liquidity_data"]["expenses"][category].get(month, 0)
+                        if old_value != new_value:
+                            changes_made = True
+                            st.session_state.model_data["liquidity_data"]["expenses"][category][month] = new_value
+    
+    # Save changes to database if any changes were made
+    if changes_made:
+        try:
+            # Save all liquidity data to database including updated expenses
+            success = save_liquidity_data_to_database(st.session_state.model_data)
+            if success:
+                st.success("✅ Cash disbursements saved to database successfully!")
+            else:
+                st.error("❌ Error saving cash disbursements to database")
+        except Exception as e:
+            st.error(f"❌ Error saving to database: {e}")
     
     return edited_df
 
@@ -1330,6 +1401,15 @@ def update_sga_expenses():
         if liquidity_cat in liquidity_to_sga_mapping and liquidity_cat in st.session_state.model_data["liquidity_data"]["expenses"]:
             sga_cat = liquidity_to_sga_mapping[liquidity_cat]
             st.session_state.model_data["sga_expenses"][sga_cat] = st.session_state.model_data["liquidity_data"]["expenses"][liquidity_cat].copy()
+    
+    # Save updated SG&A expenses to database to maintain sync
+    try:
+        # Function save_sga_expenses_to_database removed - table deleted
+        # save_sga_expenses_to_database(st.session_state.model_data["sga_expenses"])
+        pass
+    except Exception as e:
+        # Silent save to avoid disrupting the UI
+        pass
 
 # Function to calculate cash flow and cumulative balance
 def calculate_cash_flow():
@@ -1548,52 +1628,64 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Unified Navigation Bar
-st.markdown('<div class="nav-section-header">🧭 Dashboard Navigation</div>', unsafe_allow_html=True)
 
-nav_col1, nav_col2, nav_col3, nav_col4, nav_col5, nav_col6, nav_col7, nav_col8 = st.columns(8)
-
-with nav_col1:
-    if st.button("🏠 Home", key="nav_home", use_container_width=True):
-        st.info("Run: streamlit run home.py")
-
-with nav_col2:
-    if st.button("📊 KPIs", key="nav_kpi", use_container_width=True):
-        st.info("Run: streamlit run kpi_dashboard.py")
-
-with nav_col3:
-    if st.button("📈 Income", key="nav_income", use_container_width=True):
-        st.info("Run: streamlit run financial_model.py")
-
-with nav_col4:
-    if st.button("💰 Liquidity", key="nav_liquidity", use_container_width=True):
-        st.info("Run: streamlit run liquidity_model.py")
-
-with nav_col5:
-    if st.button("💵 Revenue", key="nav_revenue", use_container_width=True):
-        st.info("Run: streamlit run revenue_assumptions.py")
-
-with nav_col6:
-    if st.button("👥 Headcount", key="nav_headcount", use_container_width=True):
-        st.info("Run: streamlit run payroll_model.py")
-
-with nav_col7:
-    if st.button("🔍 Gross Profit", key="nav_gross", use_container_width=True):
-        st.info("Run: streamlit run gross_profit_model.py")
-
-with nav_col8:
-    if st.button("☁️ Hosting", key="nav_hosting", use_container_width=True):
-        st.info("Run: streamlit run hosting_costs_model.py")
-
-# Add visual separator after navigation
-st.markdown("---")
 
 # Initialize data
 initialize_liquidity_data()
 
+# Load existing data from database on page load (but don't override fresh sync data)
+if not st.session_state.get("headcount_sync_in_progress", False) and not st.session_state.get("just_synced_headcount", False):
+    try:
+        database_liquidity_data = load_liquidity_data_from_database()
+        if database_liquidity_data:
+            # Merge database data with session data
+            if "liquidity_data" not in st.session_state.model_data:
+                st.session_state.model_data["liquidity_data"] = {}
+            
+            # Update with database values, but preserve Payroll and Contractors if they were just synced
+            for key, value in database_liquidity_data.items():
+                if key == "expenses" and st.session_state.get("just_synced_headcount", False):
+                    # Preserve synced Payroll and Contractors data
+                    if "expenses" not in st.session_state.model_data["liquidity_data"]:
+                        st.session_state.model_data["liquidity_data"]["expenses"] = {}
+                    for expense_cat, expense_data in value.items():
+                        if expense_cat not in ["Payroll", "Contractors"]:
+                            st.session_state.model_data["liquidity_data"]["expenses"][expense_cat] = expense_data
+                else:
+                    st.session_state.model_data["liquidity_data"][key] = value
+                
+    except Exception as e:
+        # Silent fallback - continue with session data
+        pass
+else:
+    # Clear the sync flag after data is loaded
+    if st.session_state.get("headcount_sync_in_progress", False):
+        st.session_state.headcount_sync_in_progress = False
+
+# Clear the just_synced flag after one page cycle to allow normal database loading
+if st.session_state.get("just_synced_headcount", False):
+    # This will be cleared on the next page interaction
+    pass
+
 # Auto-sync revenue from Income Statement
 def auto_sync_revenue_from_income_statement():
     """Automatically sync revenue with total revenue from Income Statement"""
+    # Try to load revenue data from database if not in session state
+    if "revenue" not in st.session_state.model_data:
+        try:
+            # Load revenue data from database using existing function
+            full_data = load_data_from_source()
+            if full_data and "revenue" in full_data:
+                st.session_state.model_data["revenue"] = full_data["revenue"]
+        except Exception as e:
+            # Initialize empty revenue structure if loading fails
+            st.session_state.model_data["revenue"] = {
+                "Subscription": {month: 0 for month in months},
+                "Transactional": {month: 0 for month in months},
+                "Implementation": {month: 0 for month in months},
+                "Maintenance": {month: 0 for month in months}
+            }
+    
     if "revenue" in st.session_state.model_data:
         total_revenue = {}
         revenue_categories = ["Subscription", "Transactional", "Implementation", "Maintenance"]
@@ -1605,7 +1697,18 @@ def auto_sync_revenue_from_income_statement():
         st.session_state.model_data["liquidity_data"]["revenue"] = total_revenue
 
 # Auto-sync revenue automatically when page loads
-auto_sync_revenue_from_income_statement()
+try:
+    auto_sync_revenue_from_income_statement()
+except Exception as e:
+    # If revenue data doesn't exist yet, initialize empty revenue
+    if "revenue" not in st.session_state.model_data:
+        st.session_state.model_data["revenue"] = {
+            "Subscription": {month: 0 for month in months},
+            "Transactional": {month: 0 for month in months},
+            "Implementation": {month: 0 for month in months},
+            "Maintenance": {month: 0 for month in months}
+        }
+    auto_sync_revenue_from_income_statement()
 
 # Auto-populate payroll and contractor data from headcount tab
 # update_liquidity_with_payroll()
@@ -1629,14 +1732,22 @@ with st.expander("💵 Cash Receipts", expanded=False):
     # Starting Cash Balance input
     balance_col1, balance_col2 = st.columns([0.75, 3.25])
     with balance_col1:
+        # Load starting balance from database or use session state
+        current_balance = st.session_state.model_data["liquidity_data"].get("starting_balance", load_starting_balance_from_database())
+        
         starting_balance = st.number_input(
             "Starting Cash Balance (12/31/24):",
-            value=float(st.session_state.model_data["liquidity_data"]["starting_balance"]),
+            value=float(current_balance),
             step=1000.0,
             format="%.0f",
             key="starting_balance_input"
         )
-        st.session_state.model_data["liquidity_data"]["starting_balance"] = starting_balance
+        
+        # Save to database if changed and update session state
+        if starting_balance != current_balance:
+            save_starting_balance_to_database(starting_balance)
+            st.session_state.model_data["liquidity_data"]["starting_balance"] = starting_balance
+            st.success("✅ Starting balance saved to database")
 
     st.info("✅ Revenue automatically syncs with revenue from the Income Statement when page loads")
 
@@ -1714,17 +1825,32 @@ with st.expander("💵 Cash Receipts", expanded=False):
     )
 
     # Update session state with cash flow edits
+    cash_receipts_changed = False
     for i, data_key in enumerate(cash_data_keys):
         if show_monthly:
             for year in sorted(years_dict.keys()):
                 for month in years_dict[year]:
                     if month in edited_cash_df.columns:
                         value = edited_cash_df.iloc[i][month]
-                        st.session_state.model_data["liquidity_data"][data_key][month] = float(value) if value != '' else 0
+                        new_value = float(value) if value != '' else 0
+                        old_value = st.session_state.model_data["liquidity_data"][data_key].get(month, 0)
+                        if new_value != old_value:
+                            cash_receipts_changed = True
+                            st.session_state.model_data["liquidity_data"][data_key][month] = new_value
+    
+    # Save cash receipts changes to database
+    if cash_receipts_changed:
+        try:
+            success = save_liquidity_data_to_database(st.session_state.model_data)
+            if success:
+                st.success("✅ Cash receipts saved to database successfully!")
+            else:
+                st.error("❌ Error saving cash receipts to database")
+        except Exception as e:
+            st.error(f"❌ Error saving cash receipts: {e}")
 
 # CASH DISBURSEMENTS SECTION - COLLAPSIBLE
 with st.expander("💸 Cash Disbursements", expanded=False):
-    st.markdown("---")
     
     # Expense Management Dropdown
     mgmt_col1, mgmt_col2, mgmt_col3, mgmt_col4 = st.columns([0.75, 1.083, 1.083, 1.083])
@@ -1918,11 +2044,38 @@ with st.expander("💸 Cash Disbursements", expanded=False):
     # Get current expense categories in the specified order
     expense_categories = st.session_state.model_data["liquidity_data"]["category_order"]
 
-    st.info("💡 Payroll & Contractors will populate from the Headcount dashboard once synched. Expense data automatically flows to SG&A section of Income Statement")
+    st.info("💡 Payroll & Contractors automatically sync from the Headcount dashboard starting from next month forward. Cash disbursements import/export from cash_flow table in Supabase and automatically flow to SG&A section of Income Statement")
+    
+    # Auto-sync headcount data from next month forward
+    if "payroll_data" in st.session_state.model_data:
+        # Calculate next month from current date
+        from datetime import timedelta
+        current_date = datetime.now()
+        next_month_date = current_date.replace(day=1) + timedelta(days=32)  # Go to next month
+        next_month_date = next_month_date.replace(day=1)  # First day of next month
+        next_month_str = next_month_date.strftime('%b %Y')
+        
+        # Auto-sync from next month forward
+        try:
+            update_liquidity_with_payroll(next_month_str)
+            
+            # Show subtle status message
+            payroll_total = sum(st.session_state.model_data["liquidity_data"]["expenses"].get("Payroll", {}).values())
+            contractor_total = sum(st.session_state.model_data["liquidity_data"]["expenses"].get("Contractors", {}).values())
+            
+            if payroll_total > 0 or contractor_total > 0:
+                pass  # Headcount auto-sync info removed
+        except Exception as e:
+            # Silent fallback - don't show errors for auto-sync
+            pass
 
     # Create expense table
     if expense_categories:
         create_expense_table_with_years(expense_categories, show_monthly)
+        
+        # Clear the just_synced flag after table is displayed
+        if st.session_state.get("just_synced_headcount", False):
+            st.session_state.just_synced_headcount = False
     else:
         st.warning("No expense categories found.")
 
@@ -2499,12 +2652,13 @@ for year in range(current_year, current_year + 3):
 data_col1, data_col2, data_col3, data_col4, data_col5, data_col6 = st.columns([1, 1, 1, 1, 0.75, 1.25])
 
 with data_col1:
-    # Auto-save data silently - no manual button needed
-    update_sga_expenses()  # Update SG&A before saving (KEEP THIS!)
-    try:
-        save_data_to_source(st.session_state.model_data)
-    except Exception as e:
-        pass  # Silent error handling
+    if st.button("💾 Save Data", type="primary", use_container_width=True):
+        try:
+            update_sga_expenses()  # Update SG&A before saving (KEEP THIS!)
+            save_data_to_source(st.session_state.model_data)
+            st.success("✅ Data saved successfully!")
+        except Exception as e:
+            st.error(f"❌ Error saving data: {str(e)}")
 
 with data_col2:
     if st.button("📂 Load Data", type="secondary", use_container_width=True):
@@ -2751,38 +2905,7 @@ with data_col3:
         if st.button("📊 Export Excel", type="primary", use_container_width=True):
             st.error(f"❌ Error creating Excel file: {str(e)}")
 
-with data_col4:
-    if st.button("🔄 Sync Headcount", type="secondary", use_container_width=True):
-        load_effective_month = st.session_state.get("load_effective_month", "All Data (Replace Everything)")
-        effective_month_for_sync = None if load_effective_month == "All Data (Replace Everything)" else load_effective_month
-        update_liquidity_with_payroll(effective_month_for_sync)
-        
-        if effective_month_for_sync:
-            st.success(f"Payroll and contractor data synced from {effective_month_for_sync} forward, historical data preserved!")
-        else:
-            st.success("Payroll and contractor data synced for all months!")
-        
-        st.rerun()
-
-with data_col5:
-    # Calculate default index for current month
-    current_month_str = datetime.now().strftime('%b %Y')
-    try:
-        default_index = load_effective_options.index(current_month_str)
-    except ValueError:
-        # If current month not found, default to first option
-        default_index = 0
-    
-    load_effective_month = st.selectbox(
-        "Load Headcount Data From:",
-        options=load_effective_options,
-        index=default_index,
-        key="load_effective_month_select",
-        help="Choose when to start loading expense data. 'All Data' replaces everything, or select a specific month to preserve historical expenses."
-    )
-    
-    # Store in session state for access by Load Data button
-    st.session_state.load_effective_month = load_effective_month
+# Note: Headcount sync functionality moved to Cash Disbursements section for better user experience
 
 # Footer
 st.markdown("""

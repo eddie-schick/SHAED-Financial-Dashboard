@@ -11,6 +11,20 @@ st.set_page_config(
     layout="wide"
 )
 
+# Check authentication
+if "password_correct" not in st.session_state or not st.session_state.get("password_correct", False):
+    st.error("🔒 Please login from the Home page first.")
+    st.stop()
+
+# Add logout functionality to sidebar
+with st.sidebar:
+    st.markdown("---")
+    if st.button("🚪 Logout", key="logout_button"):
+        # Clear all session state variables
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+
 # Custom CSS for SHAED branding
 st.markdown("""
 <style>
@@ -54,17 +68,7 @@ st.markdown("""
         font-weight: 600;
     }
     
-    /* Dashboard Navigation header - centered */
-    .nav-section-header {
-        background-color: #00D084;
-        color: white;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1.5rem 0 1rem 0;
-        font-size: 1.2rem;
-        font-weight: 600;
-        text-align: center;
-    }
+
     
     /* Button styling */
     .stButton > button {
@@ -693,45 +697,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Unified Navigation Bar
-st.markdown('<div class="nav-section-header">🧭 Dashboard Navigation</div>', unsafe_allow_html=True)
 
-nav_col1, nav_col2, nav_col3, nav_col4, nav_col5, nav_col6, nav_col7, nav_col8 = st.columns(8)
-
-with nav_col1:
-    if st.button("🏠 Home", key="nav_home", use_container_width=True):
-        st.info("Run: streamlit run home.py")
-
-with nav_col2:
-    if st.button("📊 KPIs", key="nav_kpi", use_container_width=True):
-        st.info("Run: streamlit run kpi_dashboard.py")
-
-with nav_col3:
-    if st.button("📈 Income", key="nav_income", use_container_width=True):
-        st.info("Run: streamlit run financial_model.py")
-
-with nav_col4:
-    if st.button("💰 Liquidity", key="nav_liquidity", use_container_width=True):
-        st.info("Run: streamlit run liquidity_model.py")
-
-with nav_col5:
-    if st.button("💵 Revenue", key="nav_revenue", use_container_width=True):
-        st.info("Run: streamlit run revenue_assumptions.py")
-
-with nav_col6:
-    if st.button("👥 Headcount", key="nav_headcount", use_container_width=True):
-        st.info("Run: streamlit run payroll_model.py")
-
-with nav_col7:
-    if st.button("🔍 Gross Profit", key="nav_gross", use_container_width=True):
-        st.info("Run: streamlit run gross_profit_model.py")
-
-with nav_col8:
-    if st.button("☁️ Hosting", key="nav_hosting", use_container_width=True):
-        st.info("Run: streamlit run hosting_costs_model.py")
-
-# Add visual separator after navigation
-st.markdown("---")
 
 # Initialize data
 initialize_payroll_config()
@@ -1080,6 +1046,62 @@ def create_bonus_table():
         }
         
         st.session_state.model_data["payroll_data"]["employee_bonuses"][bonus_id] = bonus_data
+    
+    # Save to database immediately after updating session state
+    try:
+        from database import init_supabase
+        from datetime import datetime
+        
+        supabase = init_supabase()
+        if supabase:
+            # Get current employee bonuses from session state
+            employee_bonuses = st.session_state.model_data["payroll_data"]["employee_bonuses"]
+            
+            # Create employee name to ID mapping from current employees
+            employees = st.session_state.model_data["payroll_data"]["employees"]
+            name_to_id_mapping = {}
+            for emp_id, emp_data in employees.items():
+                emp_name = emp_data.get("name", "")
+                if emp_name:
+                    name_to_id_mapping[emp_name] = emp_id
+            
+            # Prepare bonus records for database
+            bonus_records = []
+            for bonus_id, bonus_data in employee_bonuses.items():
+                if bonus_data.get("employee_name", "").strip() and bonus_data.get("month", "").strip():
+                    try:
+                        year_month = datetime.strptime(bonus_data["month"], "%b %Y").strftime("%Y-%m-%d")
+                        # Map employee name to employee_id for database storage
+                        employee_name = bonus_data.get("employee_name", "")
+                        employee_id = name_to_id_mapping.get(employee_name)
+                        
+                        # Only save if we have a valid employee_id mapping
+                        if employee_id:
+                            bonus_records.append({
+                                'employee_id': employee_id,
+                                'year_month': year_month,
+                                'bonus_type': 'performance',
+                                'bonus_amount': float(bonus_data.get('bonus_amount', 0)),
+                                'bonus_reason': f'Bonus for {bonus_data.get("month", "")}',
+                                'approved_by': 'System',
+                                'bonus_date': year_month
+                            })
+                    except:
+                        continue
+            
+            # First, clear existing bonuses for all employees to handle deletions
+            all_employee_ids = list(name_to_id_mapping.values())
+            if all_employee_ids:
+                # Delete existing bonuses for all current employees
+                supabase.table('employee_bonuses').delete().in_('employee_id', all_employee_ids).execute()
+            
+            if bonus_records:
+                # Insert new bonus records
+                supabase.table('employee_bonuses').insert(bonus_records).execute()
+                
+    except Exception as e:
+        # Silent error handling - no user-visible error messages
+        pass
     
     return edited_df
 
@@ -1470,15 +1492,6 @@ for emp_data in st.session_state.model_data["payroll_data"]["employees"].values(
 st.markdown("Employee Bonuses:")
 create_bonus_table()
 
-# Show bonus summary
-bonus_count = len(st.session_state.model_data["payroll_data"]["employee_bonuses"])
-if bonus_count > 0:
-    total_bonus_amount = sum(
-        bonus_data.get("bonus_amount", 0) 
-        for bonus_data in st.session_state.model_data["payroll_data"]["employee_bonuses"].values()
-    )
-    st.info(f"📊 **Bonus Summary:** {bonus_count} bonuses totaling ${total_bonus_amount:,.2f}")
-
 st.markdown("---")
 
 # PAY PERIOD CONFIGURATION
@@ -1789,6 +1802,92 @@ def create_custom_payroll_total_row(total_dict, row_label, show_monthly=True):
     
     st.markdown(html_content, unsafe_allow_html=True)
 
+# Function to save calculated payroll costs to database
+def save_calculated_payroll_costs_to_database():
+    """Save calculated payroll costs to payroll_costs table"""
+    try:
+        from database import init_supabase
+        from datetime import datetime
+        
+        supabase = init_supabase()
+        if not supabase:
+            return False
+        
+        # Get payroll data
+        employees = st.session_state.model_data["payroll_data"]["employees"]
+        employee_bonuses = st.session_state.model_data["payroll_data"]["employee_bonuses"]
+        pay_periods = st.session_state.model_data["payroll_data"]["pay_periods"]
+        payroll_config = st.session_state.model_data["payroll_data"]["payroll_config"]
+        
+        # Get payroll tax rate
+        payroll_tax_rate = payroll_config.get("payroll_tax_percentage", 10.0) / 100.0
+        
+        # Prepare payroll cost records
+        payroll_records = []
+        
+        for month in months:
+            try:
+                year_month = datetime.strptime(month, "%b %Y").strftime("%Y-%m-%d")
+                
+                # Calculate costs for each individual employee
+                for emp_id, emp_data in employees.items():
+                    if not is_employee_active_for_month(emp_data, month):
+                        continue
+                    
+                    department = emp_data.get("department", "Opex")
+                    pay_type = emp_data.get("pay_type", "Salary")
+                    
+                    # Calculate base pay
+                    if pay_type == "Salary":
+                        annual_salary = emp_data.get("annual_salary", 0)
+                        pay_periods_count = pay_periods.get(month, 2)
+                        base_pay = (annual_salary / 26) * pay_periods_count
+                        hours_worked = emp_data.get("weekly_hours", 40.0) * pay_periods_count
+                    else:  # Hourly
+                        hourly_rate = emp_data.get("hourly_rate", 0)
+                        weekly_hours = emp_data.get("weekly_hours", 40.0)
+                        monthly_hours = weekly_hours * 4.33  # Average weeks per month
+                        base_pay = hourly_rate * monthly_hours
+                        hours_worked = monthly_hours
+                    
+                    # Find bonuses for this employee in this month
+                    employee_name = emp_data.get("name", "")
+                    bonus_pay = 0
+                    for bonus_data in employee_bonuses.values():
+                        if (bonus_data.get("employee_name", "") == employee_name and 
+                            bonus_data.get("month", "") == month):
+                            bonus_pay += bonus_data.get("bonus_amount", 0)
+                    
+                    # Calculate taxes and benefits (applied to base + bonus)
+                    taxable_amount = base_pay + bonus_pay
+                    payroll_taxes = taxable_amount * payroll_tax_rate
+                    
+                    payroll_records.append({
+                        'year_month': year_month,
+                        'employee_id': emp_id,
+                        'department': department,
+                        'base_pay': round(base_pay, 2),
+                        'overtime_pay': 0.0,  # Not currently tracked separately
+                        'bonus_pay': round(bonus_pay, 2),
+                        'payroll_taxes': round(payroll_taxes, 2),
+                        'benefits_cost': 0.0,  # Included in payroll_taxes
+                        'hours_worked': round(hours_worked, 2),
+                        'pay_periods_in_month': pay_periods.get(month, 2)
+                    })
+                    
+            except Exception as e:
+                continue  # Skip problematic months
+        
+        if payroll_records:
+            # Use upsert to safely update/insert payroll costs
+            supabase.table('payroll_costs').upsert(payroll_records, on_conflict='year_month,employee_id').execute()
+            return True
+        else:
+            return False
+            
+    except Exception as e:
+        return False
+
 # PAYROLL TABLES
 st.markdown('<div class="section-header">📊 Headcount Totals</div>', unsafe_allow_html=True)
 
@@ -1796,8 +1895,7 @@ st.markdown('<div class="section-header">📊 Headcount Totals</div>', unsafe_al
 base_payroll, payroll_taxes, bonuses, contractor_costs, total_payroll_cost, contractor_costs_by_dept = calculate_total_personnel_costs()
 payroll_by_dept, _ = calculate_monthly_payroll()  # Still needed for department breakdown
 
-# Auto-save payroll costs to database
-save_calculated_payroll_costs_to_database()
+
 
 show_monthly = view_mode == "Monthly + Yearly"
 
@@ -2305,18 +2403,492 @@ if chart_data:
 st.markdown("---")
 st.markdown('<div class="section-header">💾 Data Management</div>', unsafe_allow_html=True)
 
-col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
+data_col1, data_col2, data_col3, data_col4, data_col5, data_col6 = st.columns([1, 1, 1, 1, 0.75, 1.25])
 
-# Auto-save data silently - no manual button needed
-try:
-    save_data_to_source(st.session_state.model_data)
-except Exception as e:
-    pass  # Silent error handling
+with data_col1:
+    if st.button("💾 Save Data", type="primary", use_container_width=True):
+        try:
+            save_data_to_source(st.session_state.model_data)
+            st.success("✅ Data saved successfully!")
+        except Exception as e:
+            st.error(f"❌ Error saving data: {str(e)}")
 
-with col2:
-    if st.button("📂 Load Data", type="primary", use_container_width=True):
+with data_col2:
+    if st.button("📂 Load Data", type="secondary", use_container_width=True):
         st.session_state.model_data = load_data_from_source()
         st.rerun()
+
+with data_col3:
+    # Create Excel export data
+    try:
+        import tempfile
+        import os
+        from datetime import datetime
+        
+        # Generate timestamp and filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"SHAED_Headcount_Planning_{timestamp}.xlsx"
+        
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+            temp_path = tmp_file.name
+        
+        # Create Excel writer
+        with pd.ExcelWriter(temp_path, engine='openpyxl') as writer:
+            # Use the exact same functions that create the displayed tables
+            
+            # Get the months from revenue data
+            months = []
+            if "revenue" in st.session_state.model_data and "Subscription" in st.session_state.model_data["revenue"]:
+                months = list(st.session_state.model_data["revenue"]["Subscription"].keys())
+            # Export Employee Table - exact same data as displayed
+            if "payroll_data" in st.session_state.model_data and "employees" in st.session_state.model_data["payroll_data"]:
+                employees_data = []
+                employees = st.session_state.model_data["payroll_data"]["employees"]
+                
+                for emp_id, emp_data in employees.items():
+                    # Use the exact same logic as the displayed table
+                    pay_type = emp_data.get("pay_type", "Salary")
+                    if pay_type == "Salary":
+                        pay_amount = emp_data.get("annual_salary", 0)
+                        pay_display = f"${pay_amount:,.0f}/year"
+                    else:
+                        pay_amount = emp_data.get("hourly_rate", 0)
+                        pay_display = f"${pay_amount:.2f}/hour"
+                    
+                    employee_row = {
+                        'Employee ID': emp_id,
+                        'Name': emp_data.get('name', ''),
+                        'Role': emp_data.get('role', ''),
+                        'Department': emp_data.get('department', ''),
+                        'Pay Type': pay_type,
+                        'Pay Amount': pay_amount,
+                        'Pay Display': pay_display,
+                        'Weekly Hours': emp_data.get('weekly_hours', 40.0),
+                        'Hire Date': emp_data.get('hire_date', ''),
+                        'Termination Date': emp_data.get('termination_date', ''),
+                        'Active': emp_data.get('active', True)
+                    }
+                    employees_data.append(employee_row)
+                
+                if employees_data:
+                    employees_df = pd.DataFrame(employees_data)
+                    employees_df.to_excel(writer, sheet_name='Employee Table', index=False)
+            
+            # Export Contractor Table - exact same data as displayed
+            if "payroll_data" in st.session_state.model_data and "contractors" in st.session_state.model_data["payroll_data"]:
+                contractors_data = []
+                contractors = st.session_state.model_data["payroll_data"]["contractors"]
+                
+                for contractor_id, contractor_data in contractors.items():
+                    # Use the exact same logic as the displayed table
+                    resources = contractor_data.get('resources', 1)
+                    hourly_rate = contractor_data.get('hourly_rate', 0)
+                    hours_per_month = contractor_data.get('hours_per_month', 160)
+                    monthly_rate = resources * hourly_rate * hours_per_month
+                    
+                    contractor_row = {
+                        'Contractor ID': contractor_id,
+                        'Vendor': contractor_data.get('vendor', ''),
+                        'Role': contractor_data.get('role', ''),
+                        'Resources': resources,
+                        'Hourly Rate': hourly_rate,
+                        'Hours per Month': hours_per_month,
+                        'Monthly Rate': monthly_rate,
+                        'Start Date': contractor_data.get('start_date', ''),
+                        'End Date': contractor_data.get('end_date', ''),
+                        'Active': contractor_data.get('active', True)
+                    }
+                    contractors_data.append(contractor_row)
+                
+                if contractors_data:
+                    contractors_df = pd.DataFrame(contractors_data)
+                    contractors_df.to_excel(writer, sheet_name='Contractor Table', index=False)
+            
+            # Export Bonus Table - exact same data as displayed
+            if "payroll_data" in st.session_state.model_data and "employee_bonuses" in st.session_state.model_data["payroll_data"]:
+                bonuses_data = []
+                bonuses = st.session_state.model_data["payroll_data"]["employee_bonuses"]
+                
+                for bonus_id, bonus_data in bonuses.items():
+                    # Use the exact same logic as the displayed table
+                    bonus_row = {
+                        'Bonus ID': bonus_id,
+                        'Employee': bonus_data.get('employee', ''),
+                        'Bonus Amount': bonus_data.get('bonus_amount', 0),  # Note: using 'bonus_amount' not 'amount'
+                        'Month': bonus_data.get('month', ''),
+                        'Description': bonus_data.get('description', '')
+                    }
+                    bonuses_data.append(bonus_row)
+                
+                if bonuses_data:
+                    bonuses_df = pd.DataFrame(bonuses_data)
+                    bonuses_df.to_excel(writer, sheet_name='Bonus Table', index=False)
+            
+            # Export Monthly Expense by Category - use the exact same calculation as the displayed table
+            if months:
+                try:
+                    # Use the same functions that create the displayed combined_cost_data
+                    total_payroll, payroll_taxes, bonuses, contractor_costs, total_payroll_cost, contractor_costs_by_dept = calculate_total_personnel_costs()
+                    
+                    # Create the exact same data structure as combined_cost_data
+                    monthly_category_expenses = []
+                    for month in months:
+                        monthly_category_expenses.append({
+                            'Month': month,
+                            'Base Payroll': total_payroll.get(month, 0),
+                            'Employee Bonuses': bonuses.get(month, 0),
+                            'Payroll Taxes & Benefits': payroll_taxes.get(month, 0),
+                            'Total Payroll Cost': total_payroll_cost.get(month, 0),
+                            'Total Contractor Costs': contractor_costs.get(month, 0),
+                            'Grand Total': total_payroll_cost.get(month, 0) + contractor_costs.get(month, 0)
+                        })
+                    
+                    if monthly_category_expenses:
+                        category_df = pd.DataFrame(monthly_category_expenses)
+                        category_df.to_excel(writer, sheet_name='Monthly Expense by Category', index=False)
+                        
+                except Exception as e:
+                    # Fallback if the function fails
+                    debug_data = [{'Error': f'Could not calculate personnel costs: {str(e)}'}]
+                    debug_df = pd.DataFrame(debug_data)
+                    debug_df.to_excel(writer, sheet_name='Monthly Expense by Category', index=False)
+            
+            # Export Monthly Expense by Department - use the same calculation as displayed
+            if months:
+                try:
+                    # Use the same functions that create the displayed data
+                    payroll_by_dept, _ = calculate_monthly_payroll()
+                    _, contractor_costs_by_dept = calculate_monthly_contractor_costs()
+                    
+                    # Combine payroll and contractor costs by department
+                    monthly_dept_expenses = []
+                    all_departments = set()
+                    
+                    # Get all departments from both payroll and contractor data
+                    for month_data in payroll_by_dept.values():
+                        all_departments.update(month_data.keys())
+                    for month_data in contractor_costs_by_dept.values():
+                        all_departments.update(month_data.keys())
+                    
+                    for month in months:
+                        dept_row = {'Month': month}
+                        
+                        # Add payroll costs by department
+                        for dept in all_departments:
+                            payroll_cost = payroll_by_dept.get(month, {}).get(dept, 0)
+                            contractor_cost = contractor_costs_by_dept.get(month, {}).get(dept, 0)
+                            total_cost = payroll_cost + contractor_cost
+                            dept_row[dept] = total_cost
+                        
+                        monthly_dept_expenses.append(dept_row)
+                    
+                    if monthly_dept_expenses:
+                        dept_df = pd.DataFrame(monthly_dept_expenses).fillna(0)
+                        dept_df.to_excel(writer, sheet_name='Monthly Expense by Department', index=False)
+                        
+                except Exception as e:
+                    # Fallback if the function fails
+                    debug_data = [{'Error': f'Could not calculate department costs: {str(e)}'}]
+                    debug_df = pd.DataFrame(debug_data)
+                    debug_df.to_excel(writer, sheet_name='Monthly Expense by Department', index=False)
+            
+            # Export Monthly Payroll Summary (legacy format)
+            if months:
+                payroll_summary = []
+                
+                for month in months:
+                    month_data = st.session_state.model_data.get("payroll_data", {}).get(month, {})
+                    payroll_summary.append({
+                        'Month': month,
+                        'Total Salaries': month_data.get('total_salaries', 0),
+                        'Total Benefits': month_data.get('total_benefits', 0),
+                        'Total Taxes': month_data.get('total_taxes', 0),
+                        'Total Payroll Cost': month_data.get('total_cost', 0),
+                        'Active Employees': month_data.get('active_employees', 0)
+                    })
+                
+                if payroll_summary:
+                    payroll_df = pd.DataFrame(payroll_summary)
+                    payroll_df.to_excel(writer, sheet_name='Monthly Payroll Summary', index=False)
+            
+            # Export Department Breakdown
+            if "employees" in st.session_state.model_data and months:
+                dept_breakdown = {}
+                
+                for month in months:
+                    dept_costs = {}
+                    
+                    # Calculate department costs
+                    for emp_id, emp_data in st.session_state.model_data["employees"].items():
+                        # Check if employee is active for the month
+                        try:
+                            hire_date_str = emp_data.get("hire_date")
+                            termination_date_str = emp_data.get("termination_date")
+                            
+                            # Simple date check - employee is active if hired and not terminated
+                            is_active = emp_data.get("active", True)
+                            if hire_date_str and termination_date_str:
+                                # More complex logic could be added here for date ranges
+                                pass
+                            
+                            if is_active:
+                                dept = emp_data.get('department', 'Unknown')
+                                salary = emp_data.get('salary', 0)
+                                benefits_rate = emp_data.get('benefits_rate', 0.3)
+                                tax_rate = emp_data.get('tax_rate', 0.077)
+                                
+                                total_cost = salary * (1 + benefits_rate + tax_rate)
+                                
+                                if dept not in dept_costs:
+                                    dept_costs[dept] = 0
+                                dept_costs[dept] += total_cost
+                        except:
+                            pass  # Skip employees with data issues
+                    
+                    dept_breakdown[month] = dept_costs
+                
+                if dept_breakdown:
+                    dept_df = pd.DataFrame(dept_breakdown).fillna(0)
+                    dept_df.index.name = 'Department'
+                    dept_df.to_excel(writer, sheet_name='Department Breakdown')
+            
+            # Export Role Analysis
+            if "employees" in st.session_state.model_data:
+                role_analysis = {}
+                
+                for emp_id, emp_data in st.session_state.model_data["employees"].items():
+                    role = emp_data.get('role', 'Unknown')
+                    dept = emp_data.get('department', 'Unknown')
+                    salary = emp_data.get('salary', 0)
+                    active = emp_data.get('active', True)
+                    
+                    key = f"{dept} - {role}"
+                    if key not in role_analysis:
+                        role_analysis[key] = {
+                            'Department': dept,
+                            'Role': role,
+                            'Count': 0,
+                            'Total Salary': 0,
+                            'Average Salary': 0,
+                            'Active Count': 0
+                        }
+                    
+                    role_analysis[key]['Count'] += 1
+                    role_analysis[key]['Total Salary'] += salary
+                    if active:
+                        role_analysis[key]['Active Count'] += 1
+                
+                # Calculate averages
+                for key in role_analysis:
+                    count = role_analysis[key]['Count']
+                    if count > 0:
+                        role_analysis[key]['Average Salary'] = role_analysis[key]['Total Salary'] / count
+                
+                if role_analysis:
+                    role_df = pd.DataFrame(list(role_analysis.values()))
+                    role_df.to_excel(writer, sheet_name='Role Analysis', index=False)
+            
+            # Export Department Summary (Current State) - using correct data path
+            if "payroll_data" in st.session_state.model_data and "employees" in st.session_state.model_data["payroll_data"]:
+                dept_summary = {}
+                
+                for emp_id, emp_data in st.session_state.model_data["payroll_data"]["employees"].items():
+                    if emp_data.get('active', True):
+                        dept = emp_data.get('department', 'Unknown')
+                        annual_salary = emp_data.get('annual_salary', 0)
+                        monthly_salary = annual_salary / 12
+                        benefits_rate = emp_data.get('benefits_rate', 0.3)
+                        tax_rate = emp_data.get('tax_rate', 0.077)
+                        total_cost = monthly_salary * (1 + benefits_rate + tax_rate)
+                        
+                        if dept not in dept_summary:
+                            dept_summary[dept] = {
+                                'Department': dept,
+                                'Employee Count': 0,
+                                'Total Salaries': 0,
+                                'Total Benefits': 0,
+                                'Total Taxes': 0,
+                                'Total Cost': 0,
+                                'Average Salary': 0
+                            }
+                        
+                        dept_summary[dept]['Employee Count'] += 1
+                        dept_summary[dept]['Total Salaries'] += monthly_salary
+                        dept_summary[dept]['Total Benefits'] += monthly_salary * benefits_rate
+                        dept_summary[dept]['Total Taxes'] += monthly_salary * tax_rate
+                        dept_summary[dept]['Total Cost'] += total_cost
+                
+                # Calculate averages
+                for dept in dept_summary:
+                    count = dept_summary[dept]['Employee Count']
+                    if count > 0:
+                        dept_summary[dept]['Average Salary'] = dept_summary[dept]['Total Salaries'] / count
+                
+                if dept_summary:
+                    dept_summary_df = pd.DataFrame(list(dept_summary.values()))
+                    dept_summary_df.to_excel(writer, sheet_name='Department Summary', index=False)
+            
+            # Export Comprehensive Payroll Cost Breakdown
+            if months:
+                comprehensive_payroll = []
+                
+                for month in months:
+                    # Base payroll calculations
+                    base_payroll = 0
+                    employee_bonuses = 0
+                    payroll_taxes_benefits = 0
+                    contractor_costs = 0
+                    
+                    # Calculate employee costs - using correct data path and annual_salary
+                    for emp_id, emp_data in st.session_state.model_data.get("payroll_data", {}).get("employees", {}).items():
+                        if emp_data.get('active', True):
+                            annual_salary = emp_data.get('annual_salary', 0)
+                            monthly_salary = annual_salary / 12
+                            benefits_rate = emp_data.get('benefits_rate', 0.3)
+                            tax_rate = emp_data.get('tax_rate', 0.077)
+                            
+                            base_payroll += monthly_salary
+                            payroll_taxes_benefits += monthly_salary * (benefits_rate + tax_rate)
+                    
+                    # Calculate bonuses for this month - using correct data path
+                    for bonus_id, bonus_data in st.session_state.model_data.get("payroll_data", {}).get("employee_bonuses", {}).items():
+                        if bonus_data.get('month') == month:
+                            employee_bonuses += bonus_data.get('bonus_amount', 0)
+                    
+                    # Calculate contractor costs - using correct data path
+                    for contractor_id, contractor_data in st.session_state.model_data.get("payroll_data", {}).get("contractors", {}).items():
+                        if contractor_data.get('active', True):
+                            monthly_rate = (contractor_data.get('resources', 1) * 
+                                          contractor_data.get('hourly_rate', 0) * 
+                                          contractor_data.get('hours_per_month', 160))
+                            contractor_costs += monthly_rate
+                    
+                    total_payroll_cost = base_payroll + employee_bonuses + payroll_taxes_benefits
+                    total_costs = total_payroll_cost + contractor_costs
+                    
+                    comprehensive_payroll.append({
+                        'Month': month,
+                        'Base Payroll': base_payroll,
+                        'Employee Bonuses': employee_bonuses,
+                        'Payroll Taxes & Benefits': payroll_taxes_benefits,
+                        'Total Payroll Cost': total_payroll_cost,
+                        'Total Contractor Costs': contractor_costs,
+                        'Grand Total': total_costs
+                    })
+                
+                if comprehensive_payroll:
+                    payroll_breakdown_df = pd.DataFrame(comprehensive_payroll)
+                    payroll_breakdown_df.to_excel(writer, sheet_name='Payroll Cost Breakdown', index=False)
+            
+            # Export Headcount Trends
+            if months:
+                headcount_trends = []
+                
+                for month in months:
+                    active_employees = 0
+                    active_contractors = 0
+                    total_employee_cost = 0
+                    total_contractor_cost = 0
+                    
+                    # Count active employees and calculate costs - using correct data path and annual_salary
+                    for emp_id, emp_data in st.session_state.model_data.get("payroll_data", {}).get("employees", {}).items():
+                        if emp_data.get('active', True):
+                            active_employees += 1
+                            annual_salary = emp_data.get('annual_salary', 0)
+                            monthly_salary = annual_salary / 12
+                            benefits_rate = emp_data.get('benefits_rate', 0.3)
+                            tax_rate = emp_data.get('tax_rate', 0.077)
+                            total_employee_cost += monthly_salary * (1 + benefits_rate + tax_rate)
+                    
+                    # Count active contractors and calculate costs - using correct data path
+                    for contractor_id, contractor_data in st.session_state.model_data.get("payroll_data", {}).get("contractors", {}).items():
+                        if contractor_data.get('active', True):
+                            active_contractors += 1
+                            monthly_rate = (contractor_data.get('resources', 1) * 
+                                          contractor_data.get('hourly_rate', 0) * 
+                                          contractor_data.get('hours_per_month', 160))
+                            total_contractor_cost += monthly_rate
+                    
+                    total_workforce = active_employees + active_contractors
+                    total_cost = total_employee_cost + total_contractor_cost
+                    avg_cost_per_person = total_cost / total_workforce if total_workforce > 0 else 0
+                    
+                    headcount_trends.append({
+                        'Month': month,
+                        'Active Employees': active_employees,
+                        'Active Contractors': active_contractors,
+                        'Total Workforce': total_workforce,
+                        'Employee Costs': total_employee_cost,
+                        'Contractor Costs': total_contractor_cost,
+                        'Total Costs': total_cost,
+                        'Average Cost per Person': avg_cost_per_person
+                    })
+                
+                if headcount_trends:
+                    trends_df = pd.DataFrame(headcount_trends)
+                    trends_df.to_excel(writer, sheet_name='Headcount Trends', index=False)
+            
+            # Export Chart Data for Visualization Recreation
+            if months:
+                # Monthly cost trends for charts - using correct data paths and annual_salary
+                chart_data = []
+                for month in months:
+                    base_payroll = sum(emp_data.get('annual_salary', 0) / 12 for emp_data in st.session_state.model_data.get("payroll_data", {}).get("employees", {}).values() if emp_data.get('active', True))
+                    bonuses = sum(bonus_data.get('amount', 0) for bonus_data in st.session_state.model_data.get("payroll_data", {}).get("employee_bonuses", {}).values() if bonus_data.get('month') == month)
+                    taxes_benefits = sum((emp_data.get('annual_salary', 0) / 12) * (emp_data.get('benefits_rate', 0.3) + emp_data.get('tax_rate', 0.077)) for emp_data in st.session_state.model_data.get("payroll_data", {}).get("employees", {}).values() if emp_data.get('active', True))
+                    contractor_costs = sum(contractor_data.get('resources', 1) * contractor_data.get('hourly_rate', 0) * contractor_data.get('hours_per_month', 160) for contractor_data in st.session_state.model_data.get("payroll_data", {}).get("contractors", {}).values() if contractor_data.get('active', True))
+                    
+                    chart_data.append({
+                        'Month': month,
+                        'Base Payroll': base_payroll,
+                        'Bonuses': bonuses,
+                        'Taxes & Benefits': taxes_benefits,
+                        'Contractor Costs': contractor_costs,
+                        'Total': base_payroll + bonuses + taxes_benefits + contractor_costs
+                    })
+                
+                if chart_data:
+                    chart_df = pd.DataFrame(chart_data)
+                    chart_df.to_excel(writer, sheet_name='Chart Data', index=False)
+            
+            # Export Configuration and Settings - using correct data paths
+            config_data = [
+                ['Default Benefits Rate', st.session_state.model_data.get('default_benefits_rate', 0.3)],
+                ['Default Tax Rate', st.session_state.model_data.get('default_tax_rate', 0.077)],
+                ['Total Active Employees', len([emp for emp in st.session_state.model_data.get("payroll_data", {}).get("employees", {}).values() if emp.get('active', True)])],
+                ['Total Active Contractors', len([cont for cont in st.session_state.model_data.get("payroll_data", {}).get("contractors", {}).values() if cont.get('active', True)])],
+                ['Export Date', datetime.now().strftime("%Y-%m-%d %H:%M:%S")]
+            ]
+            
+            config_df = pd.DataFrame(config_data, columns=['Setting', 'Value'])
+            config_df.to_excel(writer, sheet_name='Configuration', index=False)
+        
+        # Read the file data for download
+        with open(temp_path, 'rb') as f:
+            excel_data = f.read()
+        
+        # Clean up temp file
+        os.unlink(temp_path)
+        
+        # Direct download button that triggers immediately
+        st.download_button(
+            label="📊 Export Excel",
+            data=excel_data,
+            file_name=filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            use_container_width=True
+        )
+        
+    except ImportError:
+        # Fallback button if openpyxl not available
+        if st.button("📊 Export Excel", type="primary", use_container_width=True):
+            st.error("❌ Excel export requires openpyxl. Please install: pip install openpyxl")
+    except Exception as e:
+        # Fallback button if there's an error
+        if st.button("📊 Export Excel", type="primary", use_container_width=True):
+            st.error(f"❌ Error creating Excel file: {str(e)}")
 
 # Footer
 st.markdown("""
@@ -2325,91 +2897,5 @@ st.markdown("""
     <small>© 2025 SHAED - All rights reserved</small>
 </div>
 """, unsafe_allow_html=True)
-
-# Function to save calculated payroll costs to database
-def save_calculated_payroll_costs_to_database():
-    """Save calculated payroll costs to payroll_costs table"""
-    try:
-        from database import init_supabase
-        from datetime import datetime
-        
-        supabase = init_supabase()
-        if not supabase:
-            return False
-        
-        # Get payroll data
-        employees = st.session_state.model_data["payroll_data"]["employees"]
-        employee_bonuses = st.session_state.model_data["payroll_data"]["employee_bonuses"]
-        pay_periods = st.session_state.model_data["payroll_data"]["pay_periods"]
-        payroll_config = st.session_state.model_data["payroll_data"]["payroll_config"]
-        
-        # Get payroll tax rate
-        payroll_tax_rate = payroll_config.get("payroll_tax_percentage", 10.0) / 100.0
-        
-        # Prepare payroll cost records
-        payroll_records = []
-        
-        for month in months:
-            try:
-                year_month = datetime.strptime(month, "%b %Y").strftime("%Y-%m-%d")
-                
-                # Calculate costs for each individual employee
-                for emp_id, emp_data in employees.items():
-                    if not is_employee_active_for_month(emp_data, month):
-                        continue
-                    
-                    department = emp_data.get("department", "Opex")
-                    pay_type = emp_data.get("pay_type", "Salary")
-                    
-                    # Calculate base pay
-                    if pay_type == "Salary":
-                        annual_salary = emp_data.get("annual_salary", 0)
-                        pay_periods_count = pay_periods.get(month, 2)
-                        base_pay = (annual_salary / 26) * pay_periods_count
-                        hours_worked = emp_data.get("weekly_hours", 40.0) * pay_periods_count
-                    else:  # Hourly
-                        hourly_rate = emp_data.get("hourly_rate", 0)
-                        weekly_hours = emp_data.get("weekly_hours", 40.0)
-                        monthly_hours = weekly_hours * 4.33  # Average weeks per month
-                        base_pay = hourly_rate * monthly_hours
-                        hours_worked = monthly_hours
-                    
-                    # Find bonuses for this employee in this month
-                    employee_name = emp_data.get("name", "")
-                    bonus_pay = 0
-                    for bonus_data in employee_bonuses.values():
-                        if (bonus_data.get("employee_name", "") == employee_name and 
-                            bonus_data.get("month", "") == month):
-                            bonus_pay += bonus_data.get("bonus_amount", 0)
-                    
-                    # Calculate taxes and benefits (applied to base + bonus)
-                    taxable_amount = base_pay + bonus_pay
-                    payroll_taxes = taxable_amount * payroll_tax_rate
-                    
-                    payroll_records.append({
-                        'year_month': year_month,
-                        'employee_id': emp_id,
-                        'department': department,
-                        'base_pay': round(base_pay, 2),
-                        'overtime_pay': 0.0,  # Not currently tracked separately
-                        'bonus_pay': round(bonus_pay, 2),
-                        'payroll_taxes': round(payroll_taxes, 2),
-                        'benefits_cost': 0.0,  # Included in payroll_taxes
-                        'hours_worked': round(hours_worked, 2),
-                        'pay_periods_in_month': pay_periods.get(month, 2)
-                    })
-                    
-            except Exception as e:
-                continue  # Skip problematic months
-        
-        if payroll_records:
-            # Use upsert to safely update/insert payroll costs
-            supabase.table('payroll_costs').upsert(payroll_records, on_conflict='year_month,employee_id').execute()
-            return True
-        else:
-            return False
-            
-    except Exception as e:
-        return False
 
 # Calculate total personnel costs (payroll + taxes/benefits + bonuses + contractors)

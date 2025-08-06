@@ -5,7 +5,7 @@ import calendar
 import plotly.graph_objects as go
 import plotly.express as px
 from typing import Any
-from database import load_data, save_data, load_data_from_source, save_data_to_source
+from database import load_data, save_data, load_data_from_source, save_data_to_source, enable_autosave, auto_save_data
 
 # Configure page
 st.set_page_config(
@@ -13,6 +13,20 @@ st.set_page_config(
     page_icon="📊",
     layout="wide"
 )
+
+# Check authentication
+if "password_correct" not in st.session_state or not st.session_state.get("password_correct", False):
+    st.error("🔒 Please login from the Home page first.")
+    st.stop()
+
+# Add logout functionality to sidebar
+with st.sidebar:
+    st.markdown("---")
+    if st.button("🚪 Logout", key="logout_button"):
+        # Clear all session state variables
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
 
 # Custom CSS for SHAED branding
 st.markdown("""
@@ -57,17 +71,7 @@ st.markdown("""
         font-weight: 600;
     }
     
-    /* Dashboard Navigation header - centered */
-    .nav-section-header {
-        background-color: #00D084;
-        color: white;
-        padding: 1rem;
-        border-radius: 8px;
-        margin: 1.5rem 0 1rem 0;
-        font-size: 1.2rem;
-        font-weight: 600;
-        text-align: center;
-    }
+
     
     /* Metric containers */
     .metric-container {
@@ -239,6 +243,12 @@ st.markdown("""
 if 'model_data' not in st.session_state:
     st.session_state.model_data = load_data_from_source()
 
+# Enable autosave functionality
+enable_autosave()
+
+# Auto-save data if changes detected
+auto_save_data(st.session_state.model_data, "KPIs Dashboard")
+
 # Header
 st.markdown("""
 <div class="main-header">
@@ -246,45 +256,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Unified Navigation Bar
-st.markdown('<div class="nav-section-header">🧭 Dashboard Navigation</div>', unsafe_allow_html=True)
 
-nav_col1, nav_col2, nav_col3, nav_col4, nav_col5, nav_col6, nav_col7, nav_col8 = st.columns(8)
-
-with nav_col1:
-    if st.button("🏠 Home", key="nav_home", use_container_width=True):
-        st.info("Run: streamlit run home.py")
-
-with nav_col2:
-    if st.button("📊 KPIs", key="nav_kpi", use_container_width=True):
-        st.info("Run: streamlit run kpi_dashboard.py")
-
-with nav_col3:
-    if st.button("📈 Income", key="nav_income", use_container_width=True):
-        st.info("Run: streamlit run financial_model.py")
-
-with nav_col4:
-    if st.button("💰 Liquidity", key="nav_liquidity", use_container_width=True):
-        st.info("Run: streamlit run liquidity_model.py")
-
-with nav_col5:
-    if st.button("💵 Revenue", key="nav_revenue", use_container_width=True):
-        st.info("Run: streamlit run revenue_assumptions.py")
-
-with nav_col6:
-    if st.button("👥 Headcount", key="nav_headcount", use_container_width=True):
-        st.info("Run: streamlit run payroll_model.py")
-
-with nav_col7:
-    if st.button("🔍 Gross Profit", key="nav_gross", use_container_width=True):
-        st.info("Run: streamlit run gross_profit_model.py")
-
-with nav_col8:
-    if st.button("☁️ Hosting", key="nav_hosting", use_container_width=True):
-        st.info("Run: streamlit run hosting_costs_model.py")
-
-# Add visual separator after navigation
-st.markdown("---")
 
 # Date range selector and filters - Default to previous month
 today = date.today()
@@ -562,7 +534,7 @@ def calculate_runway_month():
     # If we never go negative and don't have consistent positive flow, return far future
     return "Beyond 2030"
 
-def calculate_headcount_metrics():
+def calculate_headcount_metrics(target_month=None):
     """Calculate total headcount from payroll data using date-based activation"""
     # Check if payroll_data exists
     if "payroll_data" not in st.session_state.model_data:
@@ -570,15 +542,18 @@ def calculate_headcount_metrics():
     
     payroll_data = st.session_state.model_data.get("payroll_data", {})
     
-    # Get current month for active check
-    current_month = datetime.now().strftime("%b %Y")
+    # Use target month if provided, otherwise use current month
+    if target_month:
+        check_month = target_month
+    else:
+        check_month = datetime.now().strftime("%b %Y")
     
     # Count active employees using date-based logic
     employees = payroll_data.get("employees", {})
     total_employees = 0
     
     for emp_data in employees.values():
-        if is_employee_active_for_month(emp_data, current_month):
+        if is_employee_active_for_month(emp_data, check_month):
             total_employees += 1
     
     # Count contractors using date-based logic
@@ -586,7 +561,7 @@ def calculate_headcount_metrics():
     total_contractors = 0
     
     for contractor_data in contractors.values():
-        if is_contractor_active_for_month(contractor_data, current_month):
+        if is_contractor_active_for_month(contractor_data, check_month):
             total_contractors += contractor_data.get("resources", 0)
     
     return total_employees, int(total_contractors)
@@ -955,15 +930,16 @@ with ops_col2:
     """, unsafe_allow_html=True)
 
 with ops_col3:
-    # Calculate total employees
-    total_employees, total_contractors = calculate_headcount_metrics()
+    # Calculate total employees as of the selected month and year
+    target_month = months[-1] if months else datetime.now().strftime("%b %Y")
+    total_employees, total_contractors = calculate_headcount_metrics(target_month)
     total_headcount = total_employees + total_contractors
     
     st.markdown(f"""
     <div class="metric-container">
         <h4>Total Headcount</h4>
         <h2>{total_headcount}</h2>
-        <p>{total_employees} FTE + {total_contractors} Contractors</p>
+        <p>{total_employees} FTE + {total_contractors} Contractors<br><small>As of {target_month}</small></p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1346,12 +1322,21 @@ st.markdown('<div class="section-header">📊 Budget Variance Analysis</div>', u
 
 # Budget independence is handled by the system
 
-# Initialize budget data if not exists
+# Initialize budget data if not exists (but don't override existing loaded data)
 if "budget_data" not in st.session_state.model_data:
+    # Initialize empty structure - data should already be loaded by load_data_from_source()
     st.session_state.model_data["budget_data"] = {
         "monthly_budgets": {},
         "ytd_budgets": {}
     }
+elif st.session_state.model_data["budget_data"] is None:
+    # Handle case where budget_data exists but is None
+    st.session_state.model_data["budget_data"] = {
+        "monthly_budgets": {},
+        "ytd_budgets": {}
+    }
+
+
 
 # Budget filters - separate from main dashboard filters (independent of main filters)
 budget_col1, budget_col2, budget_col3, budget_col4 = st.columns([1.2, 1.2, 1.2, 1.2])
@@ -1426,6 +1411,17 @@ if budget_period == "MTD":
     budget_month = budget_selected_month
 else:
     budget_month = "YTD"
+
+# Helper function to save budget data to Supabase
+def save_budget_to_supabase():
+    """Save budget data to Supabase database"""
+    try:
+        from database import save_budget_data_to_database
+        success = save_budget_data_to_database(st.session_state.model_data)
+        return success
+    except Exception as e:
+        st.error(f"❌ Error saving budget data: {str(e)}")
+        return False
 
 # Initialize liquidity data structure if not exists to ensure cash disbursements data is available
 def initialize_liquidity_data_for_budget():
@@ -1534,11 +1530,42 @@ else:
 
 actuals = get_actual_values(budget_period, budget_selected_month if budget_period == "MTD" else budget_months)
 
-# Get budget key based on period
+# Get budget key based on period and handle YTD aggregation
 if budget_period == "MTD":
     budget_key = f"{budget_selected_month}_budget"
 else:
+    # For YTD, we need to aggregate monthly data
     budget_key = f"{budget_selected_year}_ytd_budget"
+    
+    # Create YTD budget by aggregating monthly budgets
+    budget_month_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+    selected_month_name = budget_selected_month.split(" ")[0]
+    
+    try:
+        selected_month_index = budget_month_names.index(selected_month_name)
+        ytd_months = [f"{month} {budget_selected_year}_budget" for month in budget_month_names[:selected_month_index + 1]]
+        
+        # Initialize YTD budget if it doesn't exist
+        if budget_key not in st.session_state.model_data["budget_data"]["monthly_budgets"]:
+            st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key] = {}
+        
+        # Aggregate monthly budgets into YTD
+        ytd_budget = {}
+        for month_key in ytd_months:
+            if month_key in st.session_state.model_data["budget_data"]["monthly_budgets"]:
+                monthly_budget = st.session_state.model_data["budget_data"]["monthly_budgets"][month_key]
+                for category, amount in monthly_budget.items():
+                    if category not in ytd_budget:
+                        ytd_budget[category] = 0
+                    ytd_budget[category] += float(amount or 0)
+        
+        # Update the YTD budget with aggregated values
+        st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key] = ytd_budget
+        
+    except ValueError:
+        # If month parsing fails, use current YTD budget or initialize empty
+        if budget_key not in st.session_state.model_data["budget_data"]["monthly_budgets"]:
+            st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key] = {}
 
 # Initialize liquidity data structure to ensure cash disbursements data is available
 initialize_liquidity_data_for_budget()
@@ -1579,6 +1606,8 @@ else:
         if category_key not in existing_budget:
             existing_budget[category_key] = 0
 
+
+
 # Budget input section
 st.markdown("Budget Input:")
 
@@ -1615,6 +1644,8 @@ elif budget_input_method == "Sync with Model":
         st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
         if st.button("🔄 Sync Budget", type="primary"):
             try:
+                # Sync budget data from selected month forward
+                
                 # Get all months from the model
                 all_months = []
                 for year in range(2025, 2031):
@@ -1625,7 +1656,9 @@ elif budget_input_method == "Sync with Model":
                 effective_month_idx = all_months.index(effective_month) if effective_month in all_months else 0
                 
                 # Sync budget for all months from effective date forward
-                months_to_sync = all_months[effective_month_idx:]  # All months from effective date forward
+                months_to_sync = all_months[effective_month_idx:effective_month_idx + 12]  # Limit to 12 months for testing
+                
+
                 
                 synced_count = 0
                 
@@ -1635,17 +1668,21 @@ elif budget_input_method == "Sync with Model":
                     if month_budget_key not in st.session_state.model_data["budget_data"]["monthly_budgets"]:
                         st.session_state.model_data["budget_data"]["monthly_budgets"][month_budget_key] = {}
                     
-                                     # Get actual values using the exact same working function
-                month_actuals = get_actual_values("MTD", month)
-                
-                # Calculate total actuals
-                total_actuals = sum(abs(v) for v in month_actuals.values() if isinstance(v, (int, float)))
-                
-                if total_actuals > 0:
+                    # Get actual values using the exact same working function
+                    month_actuals = get_actual_values("MTD", month)
+                    
+                    # Calculate total actuals
+                    total_actuals = sum(abs(v) for v in month_actuals.values() if isinstance(v, (int, float)))
+                    
+                    # Always sync data if we have any actual values, even if small
+                    if month_actuals and len(month_actuals) > 0:
                         # Update budget with actual values
                         for key, value in month_actuals.items():
-                            st.session_state.model_data["budget_data"]["monthly_budgets"][month_budget_key][key] = value
+                            if value is not None and value != 0:  # Only update non-zero values
+                                st.session_state.model_data["budget_data"]["monthly_budgets"][month_budget_key][key] = abs(float(value))
                         synced_count += 1
+                        
+                        pass  # Successfully synced month data
                 
                 # CRITICAL FIX: Update the display budget key with aggregated data
                 # For YTD, we need to aggregate only the synced months (from effective date forward)
@@ -1684,11 +1721,11 @@ elif budget_input_method == "Sync with Model":
                         
                         # Initialize with zeros since effective month is after selected display month
                         # Make sure to use the same expense categories from cash disbursements
-                            default_categories = [
-        "Payroll", "Contractors", "License Fees", "Travel", "Shows", "Associations", 
-        "Marketing", "Company Vehicle", "Grant Writer", "Insurance", "Legal / Professional Fees",
-        "Permitting/Fees/Licensing", "Shared Services", "Consultants/Audit/Tax", "Pritchard Amex", "Contingencies"
-    ]
+                        default_categories = [
+                            "Payroll", "Contractors", "License Fees", "Travel", "Shows", "Associations", 
+                            "Marketing", "Company Vehicle", "Grant Writer", "Insurance", "Legal / Professional Fees",
+                            "Permitting/Fees/Licensing", "Shared Services", "Consultants/Audit/Tax", "Pritchard Amex", "Contingencies"
+                        ]
                         expense_categories = st.session_state.model_data.get("liquidity_data", {}).get("category_order", default_categories)
                         for category in expense_categories:
                             category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
@@ -1708,7 +1745,8 @@ elif budget_input_method == "Sync with Model":
                                 st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key][key] = value
                 
                 if synced_count > 0:
-                    # Save the updated budget data
+                    # Save the updated budget data to Supabase
+                    save_budget_to_supabase()
                     save_data_to_source(st.session_state.model_data)
                     
                     # Create detailed success message
@@ -1728,59 +1766,85 @@ elif budget_input_method == "Sync with Model":
                 st.rerun()
                 
             except Exception as e:
-                st.error(f"❌ Error syncing budget: {str(e)}")
-                import traceback
-                st.error(f"Full error: {traceback.format_exc()}")
+                st.error(f"Error syncing budget data. Please check your liquidity forecast data.")
     
 
     
 
 
 # Show current budget values and allow editing
+# Get budget values for display
+budget_values = st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]
+
 if budget_input_method == "Manual Entry":
+    # Show budget inputs for both MTD and YTD (YTD will be read-only)
+    is_readonly = (budget_period == "YTD")
+    
     # Revenue Inputs (Collapsible)
     with st.expander("💰 Revenue Inputs", expanded=False):
         rev_col1, rev_col2 = st.columns(2)
         
         with rev_col1:
-            st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["subscription_revenue"] = st.number_input(
+            # Subscription Revenue with auto-save (disabled for YTD)
+            old_sub_value = st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key].get("subscription_revenue", 0)
+            new_sub_value = st.number_input(
                 "Subscription Revenue",
-                value=float(st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["subscription_revenue"]),
+                value=float(old_sub_value),
                 min_value=0.0,
                 step=1000.0,
                 format="%.0f",
-                key=f"budget_sub_{budget_key}"
+                key=f"budget_sub_{budget_key}",
+                disabled=is_readonly
             )
+            if not is_readonly and new_sub_value != old_sub_value:
+                st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["subscription_revenue"] = new_sub_value
+                save_budget_to_supabase()
             
-            st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["transactional_revenue"] = st.number_input(
+            # Transactional Revenue with auto-save (disabled for YTD)
+            old_trans_value = st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key].get("transactional_revenue", 0)
+            new_trans_value = st.number_input(
                 "Transactional Revenue",
-                value=float(st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["transactional_revenue"]),
+                value=float(old_trans_value),
                 min_value=0.0,
                 step=1000.0,
                 format="%.0f",
-                key=f"budget_trans_{budget_key}"
+                key=f"budget_trans_{budget_key}",
+                disabled=is_readonly
             )
-            
-            
+            if not is_readonly and new_trans_value != old_trans_value:
+                st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["transactional_revenue"] = new_trans_value
+                save_budget_to_supabase()
         
         with rev_col2:
-            st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["implementation_revenue"] = st.number_input(
+            # Implementation Revenue with auto-save (disabled for YTD)
+            old_impl_value = st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key].get("implementation_revenue", 0)
+            new_impl_value = st.number_input(
                 "Implementation Revenue",
-                value=float(st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["implementation_revenue"]),
+                value=float(old_impl_value),
                 min_value=0.0,
                 step=1000.0,
                 format="%.0f",
-                key=f"budget_impl_{budget_key}"
+                key=f"budget_impl_{budget_key}",
+                disabled=is_readonly
             )
+            if not is_readonly and new_impl_value != old_impl_value:
+                st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["implementation_revenue"] = new_impl_value
+                save_budget_to_supabase()
             
-            st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["maintenance_revenue"] = st.number_input(
+            # Maintenance Revenue with auto-save (disabled for YTD)
+            old_maint_value = st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key].get("maintenance_revenue", 0)
+            new_maint_value = st.number_input(
                 "Maintenance Revenue",
-                value=float(st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["maintenance_revenue"]),
+                value=float(old_maint_value),
                 min_value=0.0,
                 step=1000.0,
                 format="%.0f",
-                key=f"budget_maint_{budget_key}"
+                key=f"budget_maint_{budget_key}",
+                disabled=is_readonly
             )
+            if not is_readonly and new_maint_value != old_maint_value:
+                st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]["maintenance_revenue"] = new_maint_value
+                save_budget_to_supabase()
 
     # Expense Inputs (Collapsible) - Dynamic from Liquidity Tab Cash Disbursements
     with st.expander("💸 Expense Inputs", expanded=False):
@@ -1788,7 +1852,7 @@ if budget_input_method == "Manual Entry":
         num_cols = 2
         expense_cols = st.columns(num_cols)
         
-        # Dynamic expense inputs based on liquidity tab categories
+        # Dynamic expense inputs based on liquidity tab categories with auto-save (disabled for YTD)
         for i, category in enumerate(expense_categories):
             category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
             col_idx = i % num_cols
@@ -1798,20 +1862,25 @@ if budget_input_method == "Manual Entry":
                 if category_key not in st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]:
                     st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key][category_key] = 0
                 
-                st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key][category_key] = st.number_input(
+                # Get old value and create input with auto-save (disabled for YTD)
+                old_expense_value = st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key].get(category_key, 0)
+                new_expense_value = st.number_input(
                     category,
-                    value=float(st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key][category_key]),
+                    value=float(old_expense_value),
                     min_value=0.0,
                     step=1000.0,
                     format="%.0f",
-                    key=f"budget_{category_key}_{budget_key}"
+                    key=f"budget_{category_key}_{budget_key}",
+                    disabled=is_readonly
                 )
+                if not is_readonly and new_expense_value != old_expense_value:
+                    st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key][category_key] = new_expense_value
+                    save_budget_to_supabase()
 
 # Budget vs Actual Analysis
 st.markdown("Budget vs Actual Analysis:")
 
-# Get budget values
-budget_values = st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key]
+# Budget values are already defined above
 
 # Create comparison data
 comparison_data = []
@@ -2190,32 +2259,33 @@ for idx, milestone in enumerate(milestones):
 st.markdown("---")
 st.markdown('<div class="section-header">💾 Data Management</div>', unsafe_allow_html=True)
 
-col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
+data_col1, data_col2, data_col3, data_col4, data_col5, data_col6 = st.columns([1, 1, 1, 1, 0.75, 1.25])
 
-with col1:
-    # Auto-save data silently - no manual button needed
-    try:
-        # Save regular model data
-        save_data_to_source(st.session_state.model_data)
-        
-        # Save budget data specifically from KPI tab (only if budget data exists)
-        if "budget_data" in st.session_state.model_data and st.session_state.model_data["budget_data"].get("monthly_budgets"):
-            try:
-                from database_integration_fixes import save_budget_data_from_kpi_only
-                save_budget_data_from_kpi_only(st.session_state.model_data)
-            except Exception as e:
-                pass  # Silent error handling
-                
-    except Exception as e:
-        pass  # Silent error handling
+with data_col1:
+    if st.button("💾 Save Data", type="primary", use_container_width=True):
+        try:
+            # Save regular model data
+            save_data_to_source(st.session_state.model_data)
+            
+            # Save budget data specifically from KPI tab (only if budget data exists)
+            if "budget_data" in st.session_state.model_data and st.session_state.model_data["budget_data"].get("monthly_budgets"):
+                try:
+                    from database import save_budget_data_to_database
+                    save_budget_data_to_database(st.session_state.model_data)
+                except Exception as e:
+                    st.warning(f"⚠️ Budget data save failed: {str(e)}")
+            
+            st.success("✅ Data saved successfully!")
+        except Exception as e:
+            st.error(f"❌ Error saving data: {str(e)}")
 
-with col2:
-    if st.button("📂 Load Data", type="primary", use_container_width=True):
+with data_col2:
+    if st.button("📂 Load Data", type="secondary", use_container_width=True):
         st.session_state.model_data = load_data_from_source()
         st.success("✅ Data loaded successfully!")
         st.rerun()
 
-with col3:
+with data_col3:
     # Create Excel export data
     try:
         import tempfile

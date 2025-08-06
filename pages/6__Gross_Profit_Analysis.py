@@ -2,7 +2,8 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date
 import plotly.graph_objects as go
-from database import load_data, save_data, load_data_from_source, save_data_to_source
+from database import load_data, save_data, load_data_from_source, save_data_to_source, save_gross_profit_data_to_database, save_revenue_and_cogs_to_database
+# load_gross_profit_data_from_database removed - using load_data instead
 
 # Configure page
 st.set_page_config(
@@ -10,6 +11,20 @@ st.set_page_config(
     page_icon="🔍",
     layout="wide"
 )
+
+# Check authentication
+if "password_correct" not in st.session_state or not st.session_state.get("password_correct", False):
+    st.error("🔒 Please login from the Home page first.")
+    st.stop()
+
+# Add logout functionality to sidebar
+with st.sidebar:
+    st.markdown("---")
+    if st.button("🚪 Logout", key="logout_button"):
+        # Clear all session state variables
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
 
 # Custom CSS for SHAED branding (matching other dashboards)
 st.markdown("""
@@ -53,17 +68,7 @@ st.markdown("""
         font-weight: 600;
     }
     
-    /* Dashboard Navigation header - centered */
-    .nav-section-header {
-        background-color: #00D084;
-        color: white;
-        padding: 0.75rem 1rem;
-        border-radius: 5px;
-        margin: 1.5rem 0 1rem 0;
-        font-size: 1.2rem;
-        font-weight: 600;
-        text-align: center;
-    }
+
     
     /* Metric containers */
     .metric-container {
@@ -385,7 +390,15 @@ def group_months_by_year(months):
 def initialize_gross_profit_data():
     """Initialize the gross profit data structure"""
     if "gross_profit_data" not in st.session_state.model_data:
-        st.session_state.model_data["gross_profit_data"] = {}
+        # Load data from model_settings via load_data instead of dedicated function
+        try:
+            full_data = load_data()
+            if "gross_profit_data" in full_data:
+                st.session_state.model_data["gross_profit_data"] = full_data["gross_profit_data"]
+            else:
+                st.session_state.model_data["gross_profit_data"] = {}
+        except:
+            st.session_state.model_data["gross_profit_data"] = {}
     
     # Revenue streams to track
     revenue_streams = ["Subscription", "Transactional", "Implementation", "Maintenance"]
@@ -595,21 +608,49 @@ def create_gross_profit_table(revenue_streams, show_monthly=True):
                 dev_col1, dev_col2, dev_col3, dev_col4 = st.columns([0.75, 0.75, 0.75, 1.75])
                 
                 with dev_col1:
+                    current_go_live = st.session_state.model_data["gross_profit_data"]["saas_hosting_structure"].get("go_live_month", "Jan 2025")
                     go_live_month = st.selectbox(
                         "Go-Live Month:",
                         options=months,
-                        index=months.index(st.session_state.model_data["gross_profit_data"]["saas_hosting_structure"].get("go_live_month", "Jan 2025")),
-                        help="Month when platform goes live and hosting costs switch from capitalized to COGS"
+                        index=months.index(current_go_live),
+                        help="Month when platform goes live and hosting costs switch from capitalized to COGS",
+                        key="go_live_month_select"
                     )
-                    st.session_state.model_data["gross_profit_data"]["saas_hosting_structure"]["go_live_month"] = go_live_month
+                    
+                    # Auto-save when go-live month changes
+                    if go_live_month != current_go_live:
+                        st.session_state.model_data["gross_profit_data"]["saas_hosting_structure"]["go_live_month"] = go_live_month
+                        try:
+                            if save_gross_profit_data_to_database(st.session_state.model_data):
+                                st.success(f"✅ Go-live month updated to {go_live_month}")
+                            else:
+                                st.warning("⚠️ Go-live month changed but not saved to database")
+                        except Exception as e:
+                            st.error(f"❌ Error saving go-live month: {str(e)}")
+                    else:
+                        st.session_state.model_data["gross_profit_data"]["saas_hosting_structure"]["go_live_month"] = go_live_month
                 
                 with dev_col2:
+                    current_capitalize = st.session_state.model_data["gross_profit_data"]["saas_hosting_structure"].get("capitalize_before_go_live", True)
                     capitalize_toggle = st.checkbox(
                         "Capitalize hosting costs before go-live",
-                        value=st.session_state.model_data["gross_profit_data"]["saas_hosting_structure"].get("capitalize_before_go_live", True),
-                        help="When checked, hosting costs before go-live date are capitalized (COGS = $0)"
+                        value=current_capitalize,
+                        help="When checked, hosting costs before go-live date are capitalized (COGS = $0)",
+                        key="capitalize_toggle_check"
                     )
-                    st.session_state.model_data["gross_profit_data"]["saas_hosting_structure"]["capitalize_before_go_live"] = capitalize_toggle
+                    
+                    # Auto-save when capitalize setting changes
+                    if capitalize_toggle != current_capitalize:
+                        st.session_state.model_data["gross_profit_data"]["saas_hosting_structure"]["capitalize_before_go_live"] = capitalize_toggle
+                        try:
+                            if save_gross_profit_data_to_database(st.session_state.model_data):
+                                st.success(f"✅ Capitalization setting updated")
+                            else:
+                                st.warning("⚠️ Capitalization setting changed but not saved to database")
+                        except Exception as e:
+                            st.error(f"❌ Error saving capitalization setting: {str(e)}")
+                    else:
+                        st.session_state.model_data["gross_profit_data"]["saas_hosting_structure"]["capitalize_before_go_live"] = capitalize_toggle
                 
                 with dev_col3:
                     pass
@@ -677,7 +718,7 @@ def create_gross_profit_table(revenue_streams, show_monthly=True):
                         st.session_state.calculated_hosting_defaults["variable"] = default_variable
                     
                     # Quick set buttons for fixed costs
-                    fixed_quick_col1, fixed_quick_col2 = st.columns([0.75, 3.25])
+                    fixed_quick_col1, fixed_quick_col2, fixed_quick_col3, fixed_quick_col4 = st.columns([0.75, 0.75, 0.75, 1.75])
                     with fixed_quick_col1:
                         # Use static key but store default in session state to track changes
                         if "hosting_defaults_cache" not in st.session_state:
@@ -690,12 +731,37 @@ def create_gross_profit_table(revenue_streams, show_monthly=True):
                             if "set_all_fixed" in st.session_state:
                                 del st.session_state.set_all_fixed
                         
-                        fixed_set_value = st.number_input("Set all fixed costs to:", value=default_fixed, min_value=0.0, step=1000.0, key="set_all_fixed")
+                        fixed_set_value = st.number_input("Set fixed costs to:", value=0.0, min_value=0.0, step=1000.0, key="set_all_fixed")
+                    
                     with fixed_quick_col2:
-                        if st.button("Apply to All Months", key="apply_all_fixed"):
-                            for month in months:
-                                st.session_state.model_data["gross_profit_data"]["saas_hosting_structure"]["monthly_fixed_costs"][month] = fixed_set_value
-                            st.rerun()
+                        fixed_start_month = st.selectbox(
+                            "From month:",
+                            options=months,
+                            index=0,
+                            key="fixed_start_month"
+                        )
+                    
+                    with fixed_quick_col3:
+                        fixed_end_month = st.selectbox(
+                            "To month:",
+                            options=months,
+                            index=len(months)-1,
+                            key="fixed_end_month"
+                        )
+                    
+                    with fixed_quick_col4:
+                        if st.button("Apply to Selected Range", key="apply_range_fixed"):
+                            start_idx = months.index(fixed_start_month)
+                            end_idx = months.index(fixed_end_month)
+                            
+                            if start_idx <= end_idx:
+                                for i in range(start_idx, end_idx + 1):
+                                    month = months[i]
+                                    st.session_state.model_data["gross_profit_data"]["saas_hosting_structure"]["monthly_fixed_costs"][month] = fixed_set_value
+                                st.success(f"✅ Applied ${fixed_set_value:,.0f} to {end_idx - start_idx + 1} months")
+                                st.rerun()
+                            else:
+                                st.error("❌ Start month must be before or equal to end month")
                 
                 st.markdown("---")
                 
@@ -730,7 +796,7 @@ def create_gross_profit_table(revenue_streams, show_monthly=True):
                                 st.session_state.model_data["gross_profit_data"]["saas_hosting_structure"]["monthly_variable_costs"][month] = new_variable
                     
                     # Quick set buttons for variable costs
-                    var_quick_col1, var_quick_col2 = st.columns([0.75, 3.25])
+                    var_quick_col1, var_quick_col2, var_quick_col3, var_quick_col4 = st.columns([0.75, 0.75, 0.75, 1.75])
                     with var_quick_col1:
                         # Update cache when hosting costs change
                         if st.session_state.hosting_defaults_cache["variable"] != default_variable:
@@ -739,12 +805,37 @@ def create_gross_profit_table(revenue_streams, show_monthly=True):
                             if "set_all_variable" in st.session_state:
                                 del st.session_state.set_all_variable
                         
-                        var_set_value = st.number_input("Set all variable costs to:", value=default_variable, min_value=0.0, step=0.50, key="set_all_variable")
+                        var_set_value = st.number_input("Set variable costs to:", value=0.0, min_value=0.0, step=0.50, key="set_all_variable")
+                    
                     with var_quick_col2:
-                        if st.button("Apply to All Months", key="apply_all_variable"):
-                            for month in months:
-                                st.session_state.model_data["gross_profit_data"]["saas_hosting_structure"]["monthly_variable_costs"][month] = var_set_value
-                            st.rerun()
+                        var_start_month = st.selectbox(
+                            "From month:",
+                            options=months,
+                            index=0,
+                            key="var_start_month"
+                        )
+                    
+                    with var_quick_col3:
+                        var_end_month = st.selectbox(
+                            "To month:",
+                            options=months,
+                            index=len(months)-1,
+                            key="var_end_month"
+                        )
+                    
+                    with var_quick_col4:
+                        if st.button("Apply to Selected Range", key="apply_range_variable"):
+                            start_idx = months.index(var_start_month)
+                            end_idx = months.index(var_end_month)
+                            
+                            if start_idx <= end_idx:
+                                for i in range(start_idx, end_idx + 1):
+                                    month = months[i]
+                                    st.session_state.model_data["gross_profit_data"]["saas_hosting_structure"]["monthly_variable_costs"][month] = var_set_value
+                                st.success(f"✅ Applied ${var_set_value:.2f} to {end_idx - start_idx + 1} months")
+                                st.rerun()
+                            else:
+                                st.error("❌ Start month must be before or equal to end month")
                 else:
                     # Yearly view - show averages for hosting costs
                     fixed_yearly_data = []
@@ -797,14 +888,39 @@ def create_gross_profit_table(revenue_streams, show_monthly=True):
                             st.session_state.model_data["gross_profit_data"]["gross_profit_percentages"][stream][month] = new_gp
                     
                     # Quick set buttons
-                    quick_col1, quick_col2, quick_col3, quick_col4 = st.columns(4)
+                    quick_col1, quick_col2, quick_col3, quick_col4 = st.columns([0.75, 0.75, 0.75, 1.75])
                     with quick_col1:
-                        set_value = st.number_input(f"Set all to:", value=70.0, min_value=0.0, max_value=100.0, step=5.0, key=f"set_all_{stream}")
+                        set_value = st.number_input(f"Set GP% to:", value=70.0, min_value=0.0, max_value=100.0, step=5.0, key=f"set_all_{stream}")
+                    
                     with quick_col2:
-                        if st.button(f"Apply to All Months", key=f"apply_all_{stream}"):
-                            for month in months:
-                                st.session_state.model_data["gross_profit_data"]["gross_profit_percentages"][stream][month] = set_value
-                            st.rerun()
+                        gp_start_month = st.selectbox(
+                            "From month:",
+                            options=months,
+                            index=0,
+                            key=f"gp_start_month_{stream}"
+                        )
+                    
+                    with quick_col3:
+                        gp_end_month = st.selectbox(
+                            "To month:",
+                            options=months,
+                            index=len(months)-1,
+                            key=f"gp_end_month_{stream}"
+                        )
+                    
+                    with quick_col4:
+                        if st.button(f"Apply to Selected Range", key=f"apply_range_{stream}"):
+                            start_idx = months.index(gp_start_month)
+                            end_idx = months.index(gp_end_month)
+                            
+                            if start_idx <= end_idx:
+                                for i in range(start_idx, end_idx + 1):
+                                    month = months[i]
+                                    st.session_state.model_data["gross_profit_data"]["gross_profit_percentages"][stream][month] = set_value
+                                st.success(f"✅ Applied {set_value:.1f}% to {end_idx - start_idx + 1} months")
+                                st.rerun()
+                            else:
+                                st.error("❌ Start month must be before or equal to end month")
                 else:
                     # Yearly view - show averages
                     yearly_data = []
@@ -973,45 +1089,7 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Unified Navigation Bar
-st.markdown('<div class="nav-section-header">🧭 Dashboard Navigation</div>', unsafe_allow_html=True)
 
-nav_col1, nav_col2, nav_col3, nav_col4, nav_col5, nav_col6, nav_col7, nav_col8 = st.columns(8)
-
-with nav_col1:
-    if st.button("🏠 Home", key="nav_home", use_container_width=True):
-        st.info("Run: streamlit run home.py")
-
-with nav_col2:
-    if st.button("📊 KPIs", key="nav_kpi", use_container_width=True):
-        st.info("Run: streamlit run kpi_dashboard.py")
-
-with nav_col3:
-    if st.button("📈 Income", key="nav_income", use_container_width=True):
-        st.info("Run: streamlit run financial_model.py")
-
-with nav_col4:
-    if st.button("💰 Liquidity", key="nav_liquidity", use_container_width=True):
-        st.info("Run: streamlit run liquidity_model.py")
-
-with nav_col5:
-    if st.button("💵 Revenue", key="nav_revenue", use_container_width=True):
-        st.info("Run: streamlit run revenue_assumptions.py")
-
-with nav_col6:
-    if st.button("👥 Headcount", key="nav_headcount", use_container_width=True):
-        st.info("Run: streamlit run payroll_model.py")
-
-with nav_col7:
-    if st.button("🔍 Gross Profit", key="nav_gross", use_container_width=True):
-        st.info("Run: streamlit run gross_profit_model.py")
-
-with nav_col8:
-    if st.button("☁️ Hosting", key="nav_hosting", use_container_width=True):
-        st.info("Run: streamlit run hosting_costs_model.py")
-
-# Add visual separator after navigation
-st.markdown("---")
 
 # View toggle
 view_col1, view_col2 = st.columns([0.75, 3.25])
@@ -1555,23 +1633,34 @@ if chart_data:
 st.markdown("---")
 st.markdown('<div class="section-header">💾 Data Management</div>', unsafe_allow_html=True)
 
-col1, col2, col3, col4 = st.columns([1, 1, 1, 3])
+data_col1, data_col2, data_col3, data_col4, data_col5, data_col6 = st.columns([1, 1, 1, 1, 0.75, 1.25])
 
-with col1:
-    # Auto-save data silently - no manual button needed
-    update_income_statement_cogs()  # KEEP THIS - updates COGS in Income Statement
-    try:
-        save_data_to_source(st.session_state.model_data)
-    except Exception as e:
-        pass  # Silent error handling
+with data_col1:
+    if st.button("💾 Save Data", type="primary", use_container_width=True):
+        try:
+            update_income_statement_cogs()  # KEEP THIS - updates COGS in Income Statement
+            
+            # Save gross profit data specifically
+            if save_gross_profit_data_to_database(st.session_state.model_data):
+                # Save revenue and COGS data
+                save_revenue_and_cogs_to_database(st.session_state.model_data)
+                # Save comprehensive data
+                save_data_to_source(st.session_state.model_data)
+                st.success("✅ Gross profit data saved successfully to database!")
+            else:
+                # Fallback to general save
+                save_data_to_source(st.session_state.model_data) 
+                st.success("✅ Data saved successfully!")
+        except Exception as e:
+            st.error(f"❌ Error saving data: {str(e)}")
 
-with col2:
-    if st.button("📂 Load Data", type="primary", use_container_width=True):
+with data_col2:
+    if st.button("📂 Load Data", type="secondary", use_container_width=True):
         st.session_state.model_data = load_data_from_source()
         st.success("✅ Data loaded successfully!")
         st.rerun()
 
-with col3:
+with data_col3:
     # Create Excel export data
     try:
         import tempfile
@@ -1845,9 +1934,18 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Auto-save data silently - no manual button needed
+# Update integrated dashboards
+def update_integrated_dashboards():
+    """Update integrated dashboards with current gross profit data"""
+    try:
+        # Save current gross profit data to database
+        if save_gross_profit_data_to_database(st.session_state.model_data):
+            # Also save the calculated COGS data
+            save_revenue_and_cogs_to_database(st.session_state.model_data)
+            return True
+        return False
+    except Exception as e:
+        st.error(f"❌ Error updating integrated dashboards: {str(e)}")
+        return False
+
 update_integrated_dashboards()  # KEEP THIS - updates integrated dashboards
-try:
-    save_data_to_source(st.session_state.model_data)
-except Exception as e:
-    pass  # Silent error handling
