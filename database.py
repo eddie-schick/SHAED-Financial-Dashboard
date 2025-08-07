@@ -3,15 +3,47 @@ from supabase import create_client, Client
 import streamlit as st
 from typing import Dict, Any, List
 import json
+import time
 from datetime import datetime
+
+# Helper functions for logging that work both in and out of Streamlit context
+def log_error(message: str):
+    """Log an error message, works both in and out of Streamlit"""
+    try:
+        st.error(message)
+    except:
+        print(f"ERROR: {message}")
+
+def log_warning(message: str):
+    """Log a warning message, works both in and out of Streamlit"""
+    try:
+        st.warning(message)
+    except:
+        print(f"WARNING: {message}")
+
+def log_success(message: str):
+    """Log a success message, works both in and out of Streamlit"""
+    try:
+        st.success(message)
+    except:
+        print(f"SUCCESS: {message}")
+
+def log_info(message: str, data=None):
+    """Log info message, works both in and out of Streamlit"""
+    try:
+        st.write(message, data if data else "")
+    except:
+        print(f"INFO: {message}")
+        if data:
+            print(data)
 
 # Initialize Supabase client
 def init_supabase() -> Client:
-    """Initialize Supabase client with connection resilience"""
+    """Initialize Supabase client with connection resilience and SSL error handling"""
     import time
     
-    max_retries = 3
-    retry_delay = 1  # seconds
+    max_retries = 5  # Increased retries for SSL issues
+    retry_delay = 2  # Increased initial delay
     
     for attempt in range(max_retries):
         try:
@@ -25,28 +57,52 @@ def init_supabase() -> Client:
             return supabase
             
         except Exception as e:
-            if attempt < max_retries - 1:
+            error_msg = str(e)
+            
+            # Check if it's an SSL error
+            if "SSL" in error_msg or "sslv3" in error_msg.lower() or "bad record mac" in error_msg.lower():
+                print(f"SSL error on attempt {attempt + 1}/{max_retries}: {error_msg[:50]}...")
+                
+                # Clear cached client if it exists
+                try:
+                    get_supabase_client.clear()
+                except:
+                    pass
+                
+                if attempt < max_retries - 1:
+                    print(f"Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                    retry_delay = min(retry_delay * 1.5, 10)  # Cap at 10 seconds
+                    continue
+            elif attempt < max_retries - 1:
                 time.sleep(retry_delay)
-                retry_delay *= 2  # Exponential backoff
+                retry_delay *= 2  # Exponential backoff for non-SSL errors
                 continue
             
             # Fallback to hardcoded values
             try:
+                print("Trying fallback connection...")
                 url = "https://gdltscxgbhgybppbngeo.supabase.co"
                 key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdkbHRzY3hnYmhneWJwcGJuZ2VvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMwOTQ5NzAsImV4cCI6MjA2ODY3MDk3MH0.0wmAJx0zTrHuTvk1ihIdltEN-7sQBbR5BpVQKDvYPlQ"
                 supabase = create_client(url, key)
                 
                 # Test connection
                 supabase.table('business_segments').select('id').limit(1).execute()
+                print("Fallback connection successful")
                 return supabase
                 
-            except Exception:
+            except Exception as fallback_error:
+                print(f"Fallback also failed: {str(fallback_error)[:50]}...")
                 # If all else fails, return None
                 return None
 
 @st.cache_resource
 def get_supabase_client() -> Client:
     """Get cached Supabase client"""
+    return init_supabase()
+
+def get_fresh_supabase_client() -> Client:
+    """Get a fresh non-cached Supabase client for critical operations"""
     return init_supabase()
 
 def check_database_connection() -> bool:
@@ -102,35 +158,62 @@ def clear_all_data_cache():
 
 # ===== COMPREHENSIVE SAVE FUNCTIONS MAPPED TO EXISTING TABLES =====
 
+def ensure_business_segments_exist(supabase) -> Dict[str, int]:
+    """Ensure all required business segments exist in the database"""
+    # List of all required stakeholders/segments
+    required_segments = [
+        "Dealership", "End User", "Equipment Manufacturer", "Upfitter",
+        "Depot", "Fleet Management Company", "Logistics", "OEM",
+        "Traditional Finance Provider", "Channel Partner", "Charging OEM", "Insurance Provider",
+        "Maintenance Provider", "Charging as a Service", "EPC", "Government Agency",
+        "Grant Administrator", "Operating and Maintenance Provider", "Remarketing Specialists", "Technology Solutions",
+        "Utility Provider"
+    ]
+    
+    # Also add transactional segments
+    transactional_categories = ["Charging", "Vehicle", "Financing", "Other Revenue"]
+    for category in transactional_categories:
+        required_segments.append(f"Transactional-{category}")
+    
+    # Get existing segments
+    segments_response = supabase.table('business_segments').select('id, segment_name').limit(10000).execute()
+    existing_segments = {row['segment_name']: row['id'] for row in segments_response.data}
+    
+    # Create missing segments
+    new_segments = []
+    for segment_name in required_segments:
+        if segment_name not in existing_segments:
+            new_segments.append({
+                'segment_name': segment_name,
+                'description': f'Business segment for {segment_name}'
+            })
+    
+    if new_segments:
+        # Insert new segments
+        insert_response = supabase.table('business_segments').insert(new_segments).execute()
+        # Update mapping with new segments
+        for segment in insert_response.data:
+            existing_segments[segment['segment_name']] = segment['id']
+    
+    return existing_segments
+
 def save_revenue_assumptions_to_database(data: Dict[str, Any]) -> bool:
     """Save revenue assumptions to customer_assumptions and pricing_data tables"""
     try:
-        # Save function working correctly - debug removed
-            
-        supabase = get_supabase_client()
+        # Get a fresh client for saving operations
+        supabase = get_fresh_supabase_client()
         if supabase is None:
-            st.error("❌ Database connection failed. Please check your connection settings.")
+            log_error("❌ Database connection failed. Please check your connection settings.")
             return False
             
-        # Get or create business segments (stakeholders)
-        segments_response = supabase.table('business_segments').select('id, segment_name').limit(10000).execute()
-        segment_mapping = {row['segment_name']: row['id'] for row in segments_response.data}
+        # Ensure all business segments exist and get mapping
+        segment_mapping = ensure_business_segments_exist(supabase)
         
-        def get_or_create_segment(stakeholder_name):
+        def get_segment_id(stakeholder_name):
+            """Get segment ID from mapping. Returns None if not found."""
             if stakeholder_name in segment_mapping:
                 return segment_mapping[stakeholder_name]
-            
-            # Create new segment
-            try:
-                result = supabase.table('business_segments').insert({
-                    'segment_name': stakeholder_name,
-                    'description': f'Business segment for {stakeholder_name}'
-                }).execute()
-                segment_id = result.data[0]['id']
-                segment_mapping[stakeholder_name] = segment_id
-                return segment_id
-            except Exception as e:
-                return None
+            return None
         
         # Don't delete existing data - use upsert instead to preserve existing records
         
@@ -160,7 +243,7 @@ def save_revenue_assumptions_to_database(data: Dict[str, Any]) -> bool:
                     if service_type == 'transactional':
                         # Create a generic segment for transactional data using the category name
                         segment_name = f"Transactional-{stakeholder_or_category}"
-                        segment_id = get_or_create_segment(segment_name)
+                        segment_id = get_segment_id(segment_name)
                         if segment_id:
                             for month_str, value in monthly_data.items():
                                 try:
@@ -176,7 +259,7 @@ def save_revenue_assumptions_to_database(data: Dict[str, Any]) -> bool:
                                     continue
                     else:
                         # For non-transactional data, use the stakeholder-to-segment mapping
-                        segment_id = get_or_create_segment(stakeholder_or_category)
+                        segment_id = get_segment_id(stakeholder_or_category)
                         if segment_id:
                             for month_str, value in monthly_data.items():
                                 try:
@@ -199,7 +282,7 @@ def save_revenue_assumptions_to_database(data: Dict[str, Any]) -> bool:
                     if service_type == 'transactional':
                         # Create a generic segment for transactional data using the category name
                         segment_name = f"Transactional-{stakeholder_or_category}"
-                        segment_id = get_or_create_segment(segment_name)
+                        segment_id = get_segment_id(segment_name)
                         if segment_id:
                             for month_str, price_value in monthly_data.items():
                                 try:
@@ -215,7 +298,7 @@ def save_revenue_assumptions_to_database(data: Dict[str, Any]) -> bool:
                                     continue
                     else:
                         # For non-transactional pricing, use the stakeholder-to-segment mapping
-                        segment_id = get_or_create_segment(stakeholder_or_category)
+                        segment_id = get_segment_id(stakeholder_or_category)
                         if segment_id:
                             for month_str, price_value in monthly_data.items():
                                 try:
@@ -241,7 +324,7 @@ def save_revenue_assumptions_to_database(data: Dict[str, Any]) -> bool:
             
             for category, monthly_data in data['transactional_referral_fee'].items():
                 # Create the same segment naming convention as used for pricing
-                segment_id = get_or_create_segment(f"Transactional-{category}")
+                segment_id = get_segment_id(f"Transactional-{category}")
                 if segment_id:
                     for month_str, fee_percent in monthly_data.items():
                         try:
@@ -277,9 +360,10 @@ def save_revenue_assumptions_to_database(data: Dict[str, Any]) -> bool:
                     break
                 except Exception as e:
                     if attempt < max_retries - 1:
-                        st.warning(f"⚠️ Connection issue (attempt {attempt + 1}/{max_retries}). Retrying...")
+                        log_warning(f"⚠️ Connection issue (attempt {attempt + 1}/{max_retries}). Retrying...")
                         # Get a fresh connection
-                        supabase = get_supabase_client()
+                        time.sleep(1)  # Brief delay before retry
+                        supabase = get_fresh_supabase_client()
                         if supabase is None:
                             raise Exception("Failed to reconnect to database")
                         continue
@@ -299,9 +383,10 @@ def save_revenue_assumptions_to_database(data: Dict[str, Any]) -> bool:
                     break
                 except Exception as e:
                     if attempt < max_retries - 1:
-                        st.warning(f"⚠️ Connection issue (attempt {attempt + 1}/{max_retries}). Retrying...")
+                        log_warning(f"⚠️ Connection issue (attempt {attempt + 1}/{max_retries}). Retrying...")
                         # Get a fresh connection
-                        supabase = get_supabase_client()
+                        time.sleep(1)  # Brief delay before retry
+                        supabase = get_fresh_supabase_client()
                         if supabase is None:
                             raise Exception("Failed to reconnect to database")
                         continue
@@ -312,7 +397,7 @@ def save_revenue_assumptions_to_database(data: Dict[str, Any]) -> bool:
         churn_records = []
         if 'subscription_churn_rates' in data:
             for stakeholder, monthly_data in data['subscription_churn_rates'].items():
-                segment_id = get_or_create_segment(stakeholder)
+                segment_id = get_segment_id(stakeholder)
                 if segment_id:
                     for month_str, churn_rate in monthly_data.items():
                         try:
@@ -337,12 +422,41 @@ def save_revenue_assumptions_to_database(data: Dict[str, Any]) -> bool:
         
     except Exception as e:
         error_msg = str(e)
-        if "forcibly closed" in error_msg.lower() or "winError 10054" in error_msg:
-            st.error("❌ Network connection lost. Please check your internet connection and try again.")
+        
+        # Handle SSL-specific errors
+        if "SSL" in error_msg or "sslv3" in error_msg.lower() or "bad record mac" in error_msg.lower():
+            log_error("❌ SSL connection error detected. This is usually temporary.")
+            log_info("Solutions to try:")
+            log_info("1. Wait a moment and try again")
+            log_info("2. Refresh the page (F5)")
+            log_info("3. Clear browser cache and reload")
+            log_info("4. Check your internet connection")
+            
+            # Clear the cached client to force reconnection next time
+            get_supabase_client.clear()
+            
+            # Try one more time with fresh connection
+            try:
+                time.sleep(2)  # Brief pause
+                log_info("Attempting automatic reconnection...")
+                supabase_retry = get_fresh_supabase_client()
+                if supabase_retry:
+                    # Try the save one more time with fresh connection
+                    return save_revenue_assumptions_to_database(data)
+            except:
+                pass
+                
+        elif "forcibly closed" in error_msg.lower() or "winError 10054" in error_msg:
+            log_error("❌ Network connection lost. Please check your internet connection and try again.")
+            # Clear the cached client to force reconnection next time
+            get_supabase_client.clear()
         elif "timeout" in error_msg.lower():
-            st.error("❌ Database connection timed out. Please try again.")
+            log_error("❌ Database connection timed out. Please try again.")
+            get_supabase_client.clear()
         else:
-            st.error(f"❌ Error saving revenue assumptions to database: {error_msg}")
+            log_error(f"❌ Error saving revenue assumptions to database: {error_msg}")
+            import traceback
+            log_info("Full error trace:", traceback.format_exc())
         return False
 
 def save_payroll_data_to_database(data: Dict[str, Any]) -> bool:
@@ -655,89 +769,7 @@ def save_hosting_costs_to_database(data: Dict[str, Any]) -> bool:
     except Exception as e:
         return False
 
-def save_liquidity_data_to_database(data: Dict[str, Any]) -> bool:
-    """Save liquidity data (starting_balance, investment, other_cash_receipts, expenses) to Supabase"""
-    try:
-        supabase = get_supabase_client()
-        
-        liquidity_data = data.get("liquidity_data", {})
-        if not liquidity_data:
-            return False
-        
-        # Save starting balance to model_settings
-        starting_balance = liquidity_data.get("starting_balance", 0)
-        supabase.table('model_settings').upsert({
-            'setting_category': 'liquidity',
-            'setting_name': 'starting_balance',
-            'setting_value': str(float(starting_balance)),
-            'description': 'Starting cash balance for liquidity model',
-            'data_type': 'number'
-        }, on_conflict='setting_category,setting_name').execute()
-        
-        # Save monthly cash flow data to cash_flow table
-        cash_flow_records = []
-        
-        # Process investment data
-        investment_data = liquidity_data.get("investment", {})
-        for month_str, amount in investment_data.items():
-            try:
-                year_month = datetime.strptime(month_str, "%b %Y").strftime("%Y-%m-%d")
-                cash_flow_records.append({
-                    'year_month': year_month,
-                    'flow_type': 'inflow',
-                    'category': 'Investment',
-                    'subcategory': None,
-                    'amount': float(amount) if amount else 0,
-                    'description': 'Investment cash inflow'
-                })
-            except Exception as e:
-                continue
-        
-        # Process other cash receipts data
-        other_receipts_data = liquidity_data.get("other_cash_receipts", {})
-        for month_str, amount in other_receipts_data.items():
-            try:
-                year_month = datetime.strptime(month_str, "%b %Y").strftime("%Y-%m-%d")
-                cash_flow_records.append({
-                    'year_month': year_month,
-                    'flow_type': 'inflow',
-                    'category': 'Other Cash Receipts',
-                    'subcategory': None,
-                    'amount': float(amount) if amount else 0,
-                    'description': 'Other cash receipts inflow'
-                })
-            except Exception as e:
-                continue
-        
-        # Process expenses data
-        expenses_data = liquidity_data.get("expenses", {})
-        for category_name, monthly_data in expenses_data.items():
-            for month_str, amount in monthly_data.items():
-                try:
-                    year_month = datetime.strptime(month_str, "%b %Y").strftime("%Y-%m-%d")
-                    cash_flow_records.append({
-                        'year_month': year_month,
-                        'flow_type': 'outflow',
-                        'category': category_name,
-                        'subcategory': None,
-                        'amount': float(amount) if amount else 0,
-                        'description': f'Cash disbursement - {category_name}'
-                    })
-                except Exception as e:
-                    continue
-        
-        # Delete existing liquidity cash flow data first
-        if cash_flow_records:
-            # Delete existing records for this data
-            supabase.table('cash_flow').delete().in_('category', ['Investment', 'Other Cash Receipts'] + list(expenses_data.keys())).execute()
-            
-            # Insert new records using limit as specified in memory
-            supabase.table('cash_flow').upsert(cash_flow_records, on_conflict='year_month,flow_type,category,subcategory').execute()
-        
-        return True
-        
-    except Exception as e:
-        return False
+# REMOVED: Duplicate function - using the enhanced version below
 
 def save_budget_data_to_database(data: Dict[str, Any]) -> bool:
     """Save budget data to budget_data table"""
@@ -941,9 +973,10 @@ def save_revenue_and_cogs_to_database(data: Dict[str, Any]) -> bool:
                         except:
                             continue
         
-        # Insert records
+        # Insert records - revenue_data table removed, skipping
         if revenue_records:
-            supabase.table('revenue_data').upsert(revenue_records, on_conflict='year_month,revenue_category_id').execute()
+            # Table revenue_data removed - revenue calculations handled in memory
+            pass
         
         if cogs_records:
             # Table cost_of_sales removed - skipping database save
@@ -956,7 +989,7 @@ def save_revenue_and_cogs_to_database(data: Dict[str, Any]) -> bool:
 
 # ===== COMPREHENSIVE LOAD FUNCTIONS FROM EXISTING TABLES =====
 
-@st.cache_data(ttl=300)  # Cache for 5 minutes
+@st.cache_data(ttl=1800)  # Cache for 30 minutes
 def load_revenue_assumptions_from_database() -> Dict[str, Any]:
     """Load revenue assumptions from customer_assumptions and pricing_data tables"""
     try:
@@ -965,17 +998,21 @@ def load_revenue_assumptions_from_database() -> Dict[str, Any]:
             st.error("❌ Database connection failed. Cannot load revenue assumptions.")
             return {}
         
+        # Ensure all business segments exist first
+        ensure_business_segments_exist(supabase)
+        
         # Get business segments mapping
         segments_response = supabase.table('business_segments').select('id, segment_name').limit(10000).execute()
         segment_mapping = {row['id']: row['segment_name'] for row in segments_response.data}
         
-        # Define all expected stakeholders
+        # Define all expected stakeholders (first 21 business segments)
         all_stakeholders = [
-            "Equipment Manufacturer", "Dealership", "Corporate", "Charging as a Service",
-            "Charging Hardware", "Depot", "End User", "Infrastructure Partner",
-            "Finance Partner", "Fleet Management Company", "Grants", "Logistics",
-            "Non Customer", "OEM", "Service", "Technology Partner",
-            "Upfitter/Distributor", "Utility/Energy Company", "Insurance Company", "Consultant"
+            "Dealership", "End User", "Equipment Manufacturer", "Upfitter",
+            "Depot", "Fleet Management Company", "Logistics", "OEM",
+            "Traditional Finance Provider", "Channel Partner", "Charging OEM", "Insurance Provider",
+            "Maintenance Provider", "Charging as a Service", "EPC", "Government Agency",
+            "Grant Administrator", "Operating and Maintenance Provider", "Remarketing Specialists", "Technology Solutions",
+            "Utility Provider"
         ]
         
         # Segment mapping loaded successfully
@@ -989,6 +1026,7 @@ def load_revenue_assumptions_from_database() -> Dict[str, Any]:
         revenue_data = {}
         
         # Initialize all data structures with all stakeholders and months
+        # IMPORTANT: Only initialize structure, don't set default values yet
         data_keys = [
             'subscription_new_customers', 'subscription_pricing', 'subscription_churn_rates',
             'implementation_new_customers', 'implementation_pricing',
@@ -999,8 +1037,7 @@ def load_revenue_assumptions_from_database() -> Dict[str, Any]:
             revenue_data[data_key] = {}
             for stakeholder in all_stakeholders:
                 revenue_data[data_key][stakeholder] = {}
-                for month in months:
-                    revenue_data[data_key][stakeholder][month] = 0.0
+                # Don't set default values here - will be set after loading from DB
         
         # Initialize transactional data structures
         transactional_categories = ["Charging", "Vehicle", "Financing", "Other Revenue"]
@@ -1010,8 +1047,7 @@ def load_revenue_assumptions_from_database() -> Dict[str, Any]:
             revenue_data[data_key] = {}
             for category in transactional_categories:
                 revenue_data[data_key][category] = {}
-                for month in months:
-                    revenue_data[data_key][category][month] = 0.0
+                # Don't set default values here - will be set after loading from DB
         
         # Load customer assumptions - explicitly set high limit and order by date to ensure we get all records
         customer_response = supabase.table('customer_assumptions').select("*").order('year_month').limit(10000).execute()
@@ -1102,6 +1138,24 @@ def load_revenue_assumptions_from_database() -> Dict[str, Any]:
                 revenue_data[churn_key][segment_name][month_str] = record['churn_rate'] * 100
         
         
+        # Now fill in zeros ONLY for months that don't have data
+        # This prevents overwriting existing data with defaults
+        for data_key in data_keys:
+            if data_key in revenue_data:
+                for stakeholder in all_stakeholders:
+                    if stakeholder in revenue_data[data_key]:
+                        for month in months:
+                            if month not in revenue_data[data_key][stakeholder]:
+                                revenue_data[data_key][stakeholder][month] = 0.0
+        
+        for data_key in transactional_keys:
+            if data_key in revenue_data:
+                for category in transactional_categories:
+                    if category in revenue_data[data_key]:
+                        for month in months:
+                            if month not in revenue_data[data_key][category]:
+                                revenue_data[data_key][category][month] = 0.0
+        
         # Revenue data loaded successfully
         
         return revenue_data
@@ -1110,7 +1164,7 @@ def load_revenue_assumptions_from_database() -> Dict[str, Any]:
         st.error(f"❌ Error loading revenue assumptions from database: {str(e)}")
         return {}
 
-@st.cache_data(ttl=300)  # Cache for 5 minutes
+@st.cache_data(ttl=1800)  # Cache for 30 minutes
 def load_payroll_data_from_database() -> Dict[str, Any]:
     """Load payroll data from employees, employee_bonuses, pay_periods, and model_settings tables"""
     try:
@@ -1213,7 +1267,7 @@ def load_payroll_data_from_database() -> Dict[str, Any]:
         }
 
 # REMOVED: Table hosting_costs deleted
-@st.cache_data(ttl=300)  # Cache for 5 minutes
+@st.cache_data(ttl=1800)  # Cache for 30 minutes
 def load_hosting_costs_from_database() -> Dict[str, Any]:
     """Load hosting costs from hosting_costs table"""
     try:
@@ -1274,7 +1328,7 @@ def load_hosting_costs_from_database() -> Dict[str, Any]:
 
 # Removed duplicate function - using the newer version below
 
-@st.cache_data(ttl=60)  # Cache for 1 minute (reduced for testing)
+@st.cache_data(ttl=1800)  # Cache for 30 minutes
 def load_budget_data_from_database() -> Dict[str, Any]:
     """Load budget data from budget_data table"""
     try:
@@ -1314,7 +1368,7 @@ def load_gross_profit_data_from_database() -> Dict[str, Any]:
     """Function stub - gross_profit_data functionality moved to other functions"""
     return {}
 
-@st.cache_data(ttl=300)  # Cache for 5 minutes
+@st.cache_data(ttl=1800)  # Cache for 30 minutes
 def load_revenue_and_cogs_from_database() -> Dict[str, Any]:
     """Load revenue and COGS data from revenue_data and cost_of_sales tables"""
     try:
@@ -1327,16 +1381,9 @@ def load_revenue_and_cogs_from_database() -> Dict[str, Any]:
         revenue_data = {}
         cogs_data = {}
         
-        # Load revenue data
-        revenue_response = supabase.table('revenue_data').select("*").limit(10000).execute()
-        for record in revenue_response.data:
-            category_name = category_mapping.get(record['revenue_category_id'], 'Unknown')
-            month_str = datetime.strptime(record['year_month'], "%Y-%m-%d").strftime("%b %Y")
-            
-            if category_name not in revenue_data:
-                revenue_data[category_name] = {}
-            
-            revenue_data[category_name][month_str] = float(record['amount'])
+        # Load revenue data - revenue_data table removed
+        # Revenue calculations are done in memory from source data
+        # Keeping revenue_data empty for compatibility
         
         # Load COGS data
         # Table cost_of_sales removed - returning empty response
@@ -1365,6 +1412,7 @@ def save_liquidity_data_to_database(data: Dict[str, Any]) -> bool:
         
         liquidity_data = data.get("liquidity_data", {})
         if not liquidity_data:
+            st.error("No liquidity_data found in data structure")
             return False
         
         # Save starting balance to model_settings
@@ -1380,19 +1428,39 @@ def save_liquidity_data_to_database(data: Dict[str, Any]) -> bool:
         # Save monthly cash flow data to cash_flow table
         cash_flow_records = []
         
+        # Process revenue data (from Income Statement)
+        revenue_data = liquidity_data.get("revenue", {})
+        for month_str, amount in revenue_data.items():
+            try:
+                # Only add non-zero values
+                if amount and float(amount) != 0:
+                    year_month = datetime.strptime(month_str, "%b %Y").strftime("%Y-%m-%d")
+                    cash_flow_records.append({
+                        'year_month': year_month,
+                        'flow_type': 'inflow',
+                        'category': 'Revenue',
+                        'subcategory': None,
+                        'amount': float(amount),
+                        'description': 'Revenue cash inflow'
+                    })
+            except Exception as e:
+                continue
+        
         # Process investment data
         investment_data = liquidity_data.get("investment", {})
         for month_str, amount in investment_data.items():
             try:
-                year_month = datetime.strptime(month_str, "%b %Y").strftime("%Y-%m-%d")
-                cash_flow_records.append({
-                    'year_month': year_month,
-                    'flow_type': 'inflow',
-                    'category': 'Investment',
-                    'subcategory': None,
-                    'amount': float(amount) if amount else 0,
-                    'description': 'Investment cash inflow'
-                })
+                # Only add non-zero values
+                if amount and float(amount) != 0:
+                    year_month = datetime.strptime(month_str, "%b %Y").strftime("%Y-%m-%d")
+                    cash_flow_records.append({
+                        'year_month': year_month,
+                        'flow_type': 'inflow',
+                        'category': 'Investment',
+                        'subcategory': None,
+                        'amount': float(amount),
+                        'description': 'Investment cash inflow'
+                    })
             except Exception as e:
                 continue
         
@@ -1400,49 +1468,116 @@ def save_liquidity_data_to_database(data: Dict[str, Any]) -> bool:
         other_receipts_data = liquidity_data.get("other_cash_receipts", {})
         for month_str, amount in other_receipts_data.items():
             try:
-                year_month = datetime.strptime(month_str, "%b %Y").strftime("%Y-%m-%d")
-                cash_flow_records.append({
-                    'year_month': year_month,
-                    'flow_type': 'inflow',
-                    'category': 'Other Cash Receipts',
-                    'subcategory': None,
-                    'amount': float(amount) if amount else 0,
-                    'description': 'Other cash receipts inflow'
-                })
+                # Only add non-zero values
+                if amount and float(amount) != 0:
+                    year_month = datetime.strptime(month_str, "%b %Y").strftime("%Y-%m-%d")
+                    cash_flow_records.append({
+                        'year_month': year_month,
+                        'flow_type': 'inflow',
+                        'category': 'Other Cash Receipts',
+                        'subcategory': None,
+                        'amount': float(amount),
+                        'description': 'Other cash receipts inflow'
+                    })
             except Exception as e:
                 continue
         
         # Process expenses data
         expenses_data = liquidity_data.get("expenses", {})
+        
         for category_name, monthly_data in expenses_data.items():
+            # Clean up category name - remove extra spaces and normalize
+            clean_category_name = ' '.join(category_name.split()).strip()
+            
             for month_str, amount in monthly_data.items():
                 try:
-                    year_month = datetime.strptime(month_str, "%b %Y").strftime("%Y-%m-%d")
-                    cash_flow_records.append({
-                        'year_month': year_month,
-                        'flow_type': 'outflow',
-                        'category': category_name,
-                        'subcategory': None,
-                        'amount': float(amount) if amount else 0,
-                        'description': f'Cash disbursement - {category_name}'
-                    })
+                    # Only add non-zero values
+                    if amount and float(amount) != 0:
+                        year_month = datetime.strptime(month_str, "%b %Y").strftime("%Y-%m-%d")
+                        cash_flow_records.append({
+                            'year_month': year_month,
+                            'flow_type': 'outflow',
+                            'category': clean_category_name,
+                            'subcategory': None,
+                            'amount': float(amount),
+                            'description': f'Cash disbursement - {clean_category_name}'
+                        })
                 except Exception as e:
                     continue
         
-        # Delete existing liquidity cash flow data first
+        # Save records to database
         if cash_flow_records:
-            # Delete existing records for this data
-            supabase.table('cash_flow').delete().in_('category', ['Investment', 'Other Cash Receipts'] + list(expenses_data.keys())).execute()
+            try:
+                # Get all unique categories we're about to save
+                categories_to_save = list(set(record['category'] for record in cash_flow_records))
+                
+                # Also ensure we delete old Revenue, Investment, Other Cash Receipts records
+                all_liquidity_categories = ['Revenue', 'Investment', 'Other Cash Receipts']
+                # Add expense categories (cleaned)
+                if expenses_data:
+                    all_liquidity_categories.extend([' '.join(cat.split()).strip() for cat in expenses_data.keys()])
+                
+                # Delete existing records for ALL liquidity-related categories
+                delete_response = supabase.table('cash_flow').delete().in_('category', all_liquidity_categories).execute()
+                
+            except Exception as delete_e:
+                # Continue anyway as upsert should handle updates
+                pass
             
-            # Insert new records using limit as specified in memory
-            supabase.table('cash_flow').upsert(cash_flow_records, on_conflict='year_month,flow_type,category,subcategory').execute()
-        
-        return True
+            try:
+                # Insert new records in batches to avoid timeout
+                batch_size = 100
+                for i in range(0, len(cash_flow_records), batch_size):
+                    batch = cash_flow_records[i:i+batch_size]
+                    response = supabase.table('cash_flow').upsert(batch, on_conflict='year_month,flow_type,category,subcategory').execute()
+                
+                return True
+                
+            except Exception as insert_e:
+                st.error(f"❌ Error saving cash flow records: {insert_e}")
+                return False
+        else:
+            # No non-zero records to save is OK
+            return True
         
     except Exception as e:
+        # Add debug info for troubleshooting
+        st.error(f"❌ Error saving liquidity data: {str(e)}")
+        st.error(f"❌ Error details: {type(e).__name__}")
         return False
 
-@st.cache_data(ttl=300)  # Cache for 5 minutes
+def cleanup_category_names_in_database():
+    """Clean up category names with duplicate spaces in the cash_flow table"""
+    try:
+        supabase = get_supabase_client()
+        
+        # Get all records with potential spacing issues
+        response = supabase.table('cash_flow').select('*').execute()
+        
+        if response.data:
+            records_to_update = []
+            for record in response.data:
+                original_category = record['category']
+                clean_category = ' '.join(original_category.split())
+                
+                if original_category != clean_category:
+                    record['category'] = clean_category
+                    records_to_update.append(record)
+            
+            if records_to_update:
+                # Update records with clean category names
+                for record in records_to_update:
+                    supabase.table('cash_flow').update({'category': record['category']}).eq('id', record['id']).execute()
+                
+                st.success(f"✅ Cleaned up {len(records_to_update)} category names")
+                return True
+        
+        return True
+    except Exception as e:
+        st.error(f"❌ Error cleaning category names: {str(e)}")
+        return False
+
+@st.cache_data(ttl=1800)  # Cache for 30 minutes
 def load_liquidity_data_from_database() -> Dict[str, Any]:
     """Load liquidity data (starting_balance, investment, other_cash_receipts, expenses) from Supabase"""
     try:
@@ -1451,7 +1586,7 @@ def load_liquidity_data_from_database() -> Dict[str, Any]:
         
         # Load starting balance from model_settings
         try:
-            settings_response = supabase.table('model_settings').select('*').eq('setting_category', 'liquidity').eq('setting_name', 'starting_balance').execute()
+            settings_response = supabase.table('model_settings').select('setting_value').eq('setting_category', 'liquidity').eq('setting_name', 'starting_balance').execute()
             if settings_response.data:
                 liquidity_data["starting_balance"] = float(settings_response.data[0]['setting_value'])
             else:
@@ -1465,6 +1600,7 @@ def load_liquidity_data_from_database() -> Dict[str, Any]:
             for month_name in ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]:
                 months.append(f"{month_name} {year}")
         
+        liquidity_data["revenue"] = {month: 0 for month in months}
         liquidity_data["investment"] = {month: 0 for month in months}
         liquidity_data["other_cash_receipts"] = {month: 0 for month in months}
         liquidity_data["expenses"] = {}
@@ -1481,7 +1617,9 @@ def load_liquidity_data_from_database() -> Dict[str, Any]:
                     flow_type = record['flow_type']
                     
                     if flow_type == 'inflow':
-                        if category == 'Investment':
+                        if category == 'Revenue':
+                            liquidity_data["revenue"][month_str] = amount
+                        elif category == 'Investment':
                             liquidity_data["investment"][month_str] = amount
                         elif category == 'Other Cash Receipts':
                             liquidity_data["other_cash_receipts"][month_str] = amount
@@ -1506,7 +1644,7 @@ def load_starting_balance_from_database() -> float:
     """Load starting balance from model_settings table"""
     try:
         supabase = get_supabase_client()
-        settings_response = supabase.table('model_settings').select('*').eq('setting_category', 'liquidity').eq('setting_name', 'starting_balance').execute()
+        settings_response = supabase.table('model_settings').select('setting_value').eq('setting_category', 'liquidity').eq('setting_name', 'starting_balance').execute()
         if settings_response.data:
             return float(settings_response.data[0]['setting_value'])
         else:
@@ -1532,65 +1670,18 @@ def save_starting_balance_to_database(starting_balance: float) -> bool:
 # ===== ENHANCED REVENUE ASSUMPTIONS SAVE/LOAD FUNCTIONS =====
 
 def save_revenue_calculations_to_database(data: Dict[str, Any]) -> bool:
-    """Save calculated revenue totals to revenue_data table"""
-    try:
-        supabase = get_supabase_client()
-        
-        revenue_data = data.get("revenue", {})
-        if not revenue_data:
-            return False
-        
-        # Get or create revenue categories
-        categories_response = supabase.table('revenue_categories').select('id, category_name').limit(10000).execute()
-        category_mapping = {row['category_name']: row['id'] for row in categories_response.data}
-        
-        def get_or_create_revenue_category(category_name):
-            if category_name in category_mapping:
-                return category_mapping[category_name]
-            
-            try:
-                result = supabase.table('revenue_categories').insert({
-                    'category_name': category_name,
-                    'description': f'Revenue category for {category_name}'
-                }).execute()
-                category_id = result.data[0]['id']
-                category_mapping[category_name] = category_id
-                return category_id
-            except Exception as e:
-                return None
-        
-        revenue_records = []
-        revenue_categories = ["Subscription", "Transactional", "Implementation", "Maintenance"]
-        
-        for category_name in revenue_categories:
-            if category_name in revenue_data:
-                category_id = get_or_create_revenue_category(category_name)
-                if category_id:
-                    monthly_data = revenue_data[category_name]
-                    for month_str, amount in monthly_data.items():
-                        try:
-                            year_month = datetime.strptime(month_str, "%b %Y").strftime("%Y-%m-%d")
-                            revenue_records.append({
-                                'year_month': year_month,
-                                'revenue_category_id': category_id,
-                                'amount': float(amount) if amount else 0
-                            })
-                        except Exception as e:
-                            pass
-                            continue
-        
-        # Clear existing revenue data and insert new records
-        if revenue_records:
-                supabase.table('revenue_data').upsert(revenue_records, on_conflict='year_month,revenue_category_id').execute()
-        
-        return True
-        
-    except Exception as e:
-        return False
+    """Save calculated revenue totals - table removed, returning success"""
+    # Note: revenue_data table has been removed from schema
+    # Revenue calculations are handled in memory and don't need database storage
+    # Returning True to maintain compatibility
+    return True
 
 def save_comprehensive_revenue_assumptions_to_database(data: Dict[str, Any]) -> bool:
     """Comprehensive save of all revenue assumptions data to Supabase"""
     try:
+        # Clear the connection cache to ensure fresh connection
+        get_supabase_client.clear()
+        
         # Save the detailed revenue assumptions (customer data, pricing, etc.)
         revenue_assumptions_success = save_revenue_assumptions_to_database(data)
         
@@ -1601,43 +1692,29 @@ def save_comprehensive_revenue_assumptions_to_database(data: Dict[str, Any]) -> 
         load_revenue_assumptions_from_database.clear()
         load_comprehensive_revenue_data_from_database.clear()
         
+        # Clear connection cache after save to prevent stale connections
+        get_supabase_client.clear()
+        
         return revenue_assumptions_success and revenue_success
         
     except Exception as e:
-        st.error(f"❌ Error in comprehensive revenue save: {str(e)}")
-        st.write("Debug info - Available data keys:", list(data.keys()) if data else "No data")
+        # Clear connection cache on error
+        get_supabase_client.clear()
+        log_error(f"❌ Error in comprehensive revenue save: {str(e)}")
+        log_info("Debug info - Available data keys:", list(data.keys()) if data else "No data")
+        import traceback
+        log_info("Full error trace:", traceback.format_exc())
         return False
 
-@st.cache_data(ttl=300)  # Cache for 5 minutes
+@st.cache_data(ttl=1800)  # Cache for 30 minutes
 def load_revenue_calculations_from_database() -> Dict[str, Any]:
-    """Load calculated revenue totals from revenue_data table"""
-    try:
-        supabase = get_supabase_client()
-        
-        # Get revenue categories
-        categories_response = supabase.table('revenue_categories').select('id, category_name').limit(10000).execute()
-        category_mapping = {row['id']: row['category_name'] for row in categories_response.data}
-        
-        revenue_data = {}
-        
-        # Load revenue data
-        revenue_response = supabase.table('revenue_data').select("*").limit(10000).execute()
-        for record in revenue_response.data:
-            category_name = category_mapping.get(record['revenue_category_id'], 'Unknown')
-            month_str = datetime.strptime(record['year_month'], "%Y-%m-%d").strftime("%b %Y")
-            
-            if category_name not in revenue_data:
-                revenue_data[category_name] = {}
-            
-            revenue_data[category_name][month_str] = float(record['amount'])
-        
-        return {"revenue": revenue_data} if revenue_data else {}
-        
-    except Exception as e:
+    """Load calculated revenue totals - table removed, returning empty"""
+    # Note: revenue_data table has been removed from schema
+    # Revenue calculations are done in memory from the source data
+    # Returning empty dict to maintain compatibility
+    return {}
 
-        return {}
-
-@st.cache_data(ttl=300)  # Cache for 5 minutes
+@st.cache_data(ttl=1800)  # Cache for 30 minutes
 def load_comprehensive_revenue_data_from_database() -> Dict[str, Any]:
     """Load all revenue-related data from Supabase"""
     try:
@@ -1767,6 +1844,7 @@ def save_data_to_source(data: Dict[str, Any]) -> bool:
         st.error(f"❌ Error in comprehensive save: {e}")
         return False
 
+@st.cache_data(ttl=1800)  # Cache for 30 minutes
 def load_data_from_source() -> Dict[str, Any]:
     """Enhanced comprehensive load function that loads all data including revenue and liquidity"""
     try:
@@ -1874,11 +1952,10 @@ def load_data_from_source() -> Dict[str, Any]:
             # Load liquidity data (NEW)
             liquidity_data = load_liquidity_data_from_database()
             if liquidity_data and isinstance(liquidity_data, dict):
-                if "liquidity_data" not in model_data:
-                    model_data["liquidity_data"] = {}
-                model_data["liquidity_data"].update(liquidity_data)
+                # Replace entire liquidity_data instead of updating to ensure clean state
+                model_data["liquidity_data"] = liquidity_data
         except Exception as e:
-            pass
+            model_data["liquidity_data"] = {}
     
         
         return model_data
@@ -1912,7 +1989,6 @@ def save_data(data: Dict[str, Any]) -> bool:
 def show_supabase_access_info():
     """Display Supabase connection information and table status"""
     try:
-        import streamlit as st
         supabase = get_supabase_client()
         
 
@@ -1947,9 +2023,6 @@ def show_supabase_access_info():
 def save_all_to_supabase_enhanced(data: Dict[str, Any]) -> bool:
     """Enhanced save function that maps all data to appropriate Supabase tables"""
     try:
-        import streamlit as st
-
-        
         success_count = 0
         total_operations = 0
         
@@ -1990,7 +2063,6 @@ def save_all_to_supabase_enhanced(data: Dict[str, Any]) -> bool:
 def save_income_statement_to_database(data: Dict[str, Any]) -> bool:
     """Save complete income statement data to Supabase income_statement table"""
     try:
-        import streamlit as st
         # Use service role client to bypass RLS
         from supabase import create_client, Client
         
@@ -2175,9 +2247,6 @@ CREATE POLICY "Enable all operations for authenticated users" ON public.income_s
 def clean_up_cash_disbursement_categories(data: Dict[str, Any]) -> bool:
     """Clean up and reset cash disbursement categories to ensure consistency across income statement and KPI dashboard"""
     try:
-        import streamlit as st
-
-        
         # The correct categories in the exact order the user needs
         correct_categories = [
             "Payroll",                    # Must be first - syncs with payroll headcount

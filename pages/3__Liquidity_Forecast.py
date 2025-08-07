@@ -2,15 +2,16 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date
 import plotly.graph_objects as go
-from database import load_data, save_data, load_data_from_source, save_data_to_source, init_supabase, save_liquidity_data_to_database, load_liquidity_data_from_database, load_starting_balance_from_database, save_starting_balance_to_database
+from database import load_data, save_data, load_data_from_source, save_data_to_source, init_supabase, save_liquidity_data_to_database, load_liquidity_data_from_database, load_starting_balance_from_database, save_starting_balance_to_database, cleanup_category_names_in_database, enable_autosave, auto_save_data
 
 # Payroll integration functions
 
+@st.cache_data(ttl=1800)  # Cache for 30 minutes
 def load_sga_categories_from_database():
     """Load SG&A expense categories from the expense_categories table"""
     try:
         supabase = init_supabase()
-        response = supabase.table('expense_categories').select('*').eq('category_type', 'sga').order('id').limit(10000).execute()
+        response = supabase.table('expense_categories').select('category_name, category_type').eq('category_type', 'sga').order('category_name').limit(10000).execute()
         
         categories = {}
         for row in response.data:
@@ -41,10 +42,10 @@ def get_default_sga_categories():
         "Company Vehicle": {"classification": "Opex", "editable": True},
         "Grant Writer": {"classification": "Personnel", "editable": True},
         "Insurance": {"classification": "Opex", "editable": True},
-        "Legal / Professional Fees": {"classification": "Opex", "editable": True},
-        "Permitting/Fees/Licensing": {"classification": "Opex", "editable": True},
+        "Legal Professional Fees": {"classification": "Opex", "editable": True},
+        "Permitting Fees Licensing": {"classification": "Opex", "editable": True},
         "Shared Services": {"classification": "Opex", "editable": True},
-        "Consultants/Audit/Tax": {"classification": "Opex", "editable": True},
+        "Consultants Audit Tax": {"classification": "Opex", "editable": True},
         "Pritchard Amex": {"classification": "Opex", "editable": True},
         "Contingencies": {"classification": "Opex", "editable": True}
     }
@@ -308,6 +309,9 @@ st.set_page_config(
 if "password_correct" not in st.session_state or not st.session_state.get("password_correct", False):
     st.error("🔒 Please login from the Home page first.")
     st.stop()
+
+# Enable autosave functionality
+enable_autosave()
 
 # Add logout functionality to sidebar
 with st.sidebar:
@@ -877,19 +881,19 @@ def load_data_from_month(effective_month=None) -> dict:
 
 # Initialize session state
 if 'model_data' not in st.session_state:
+    # Load all data once at initialization
     st.session_state.model_data = load_data_from_source()
     
     # Ensure we have revenue data loaded for auto-sync
     if not st.session_state.model_data:
         st.session_state.model_data = {}
-    if "revenue" not in st.session_state.model_data:
-        # Try to load just revenue data if full data load failed
-        try:
-            full_data = load_data_from_source()
-            if full_data and "revenue" in full_data:
-                st.session_state.model_data["revenue"] = full_data["revenue"]
-        except Exception as e:
-            pass
+    
+    # Note: load_data_from_source() already loads liquidity_data and revenue
+    # so we don't need separate calls to load_liquidity_data_from_database()
+    # or another load_data_from_source() call
+
+# Auto-save data if changes detected (after model_data is initialized)
+auto_save_data(st.session_state.model_data, "Liquidity Forecast")
 
 # Generate months from 2025-2030
 def get_months_2025_2030():
@@ -936,6 +940,55 @@ def group_months_by_year(months):
         years[year].append(month)
     return years
 
+# Clean up duplicate expense categories in session state
+def cleanup_duplicate_categories():
+    """Remove duplicate expense categories with extra spaces"""
+    if "liquidity_data" in st.session_state.model_data:
+        if "expenses" in st.session_state.model_data["liquidity_data"]:
+            cleaned_expenses = {}
+            seen_categories = set()
+            
+            for category, data in st.session_state.model_data["liquidity_data"]["expenses"].items():
+                # Clean category name - remove extra spaces and normalize
+                clean_category = ' '.join(category.split()).strip()
+                
+                # Check for case-insensitive duplicates
+                category_lower = clean_category.lower()
+                
+                # Special handling for known problematic categories
+                if "legal" in category_lower and "professional" in category_lower:
+                    clean_category = "Legal Professional Fees"
+                
+                if category_lower not in seen_categories:
+                    seen_categories.add(category_lower)
+                    cleaned_expenses[clean_category] = data
+                else:
+                    # Merge duplicate entries - keep non-zero values
+                    for month, value in data.items():
+                        if value != 0 and clean_category in cleaned_expenses:
+                            cleaned_expenses[clean_category][month] = value
+                            
+            st.session_state.model_data["liquidity_data"]["expenses"] = cleaned_expenses
+        
+        # Also clean up expense_categories dictionary
+        if "expense_categories" in st.session_state.model_data["liquidity_data"]:
+            cleaned_categories = {}
+            seen_categories = set()
+            
+            for category, info in st.session_state.model_data["liquidity_data"]["expense_categories"].items():
+                clean_category = ' '.join(category.split()).strip()
+                
+                # Special handling for known problematic categories
+                category_lower = clean_category.lower()
+                if "legal" in category_lower and "professional" in category_lower:
+                    clean_category = "Legal Professional Fees"
+                
+                if category_lower not in seen_categories:
+                    seen_categories.add(category_lower)
+                    cleaned_categories[clean_category] = info
+                    
+            st.session_state.model_data["liquidity_data"]["expense_categories"] = cleaned_categories
+
 # Initialize liquidity data structure
 def initialize_liquidity_data():
     """Initialize the liquidity data structure with expense categories from database"""
@@ -945,6 +998,9 @@ def initialize_liquidity_data():
     
     # Use database categories as default, with fallback to hardcoded if database fails
     default_categories = database_categories if database_categories else get_default_sga_categories()
+    
+    # Clean up any duplicates before initializing
+    cleanup_duplicate_categories()
     
     # Initialize liquidity data if not exists
     if "liquidity_data" not in st.session_state.model_data:
@@ -992,8 +1048,26 @@ def initialize_liquidity_data():
         st.session_state.model_data["liquidity_data"]["expense_categories"] = default_categories
     
     # Initialize category order (for display order in both liquidity and financial models)
+    # Use the specific order requested by the user
     if "category_order" not in st.session_state.model_data["liquidity_data"]:
-        st.session_state.model_data["liquidity_data"]["category_order"] = list(default_categories.keys())
+        st.session_state.model_data["liquidity_data"]["category_order"] = [
+            "Payroll",
+            "Contractors",
+            "License Fees",
+            "Travel",
+            "Shows",
+            "Associations",
+            "Marketing",
+            "Company Vehicle",
+            "Grant Writer",
+            "Insurance",
+            "Legal Professional Fees",
+            "Permitting Fees Licensing",
+            "Shared Services",
+            "Consultants Audit Tax",
+            "Pritchard Amex",
+            "Contingencies"
+        ]
     
     # Initialize expense data for each category
     if "expenses" not in st.session_state.model_data["liquidity_data"]:
@@ -1112,17 +1186,44 @@ def initialize_liquidity_data():
     if "Payroll" not in st.session_state.model_data["liquidity_data"]["expenses"]:
         st.session_state.model_data["liquidity_data"]["expenses"]["Payroll"] = {month: 0 for month in months}
     
-    # Ensure Payroll is at the beginning of category order
+    # Ensure proper category order with Payroll at the beginning
+    preferred_order = [
+        "Payroll",
+        "Contractors",
+        "License Fees",
+        "Travel",
+        "Shows",
+        "Associations",
+        "Marketing",
+        "Company Vehicle",
+        "Grant Writer",
+        "Insurance",
+        "Legal Professional Fees",
+        "Permitting Fees Licensing",
+        "Shared Services",
+        "Consultants Audit Tax",
+        "Pritchard Amex",
+        "Contingencies"
+    ]
+    
     if "category_order" in st.session_state.model_data["liquidity_data"]:
         category_order = st.session_state.model_data["liquidity_data"]["category_order"]
-        if "Payroll" not in category_order:
-            category_order.insert(0, "Payroll")
-            st.session_state.model_data["liquidity_data"]["category_order"] = category_order
-        elif category_order.index("Payroll") != 0:
-            # Move Payroll to the beginning if it's not already there
-            category_order.remove("Payroll")
-            category_order.insert(0, "Payroll")
-            st.session_state.model_data["liquidity_data"]["category_order"] = category_order
+        
+        # Ensure all preferred categories are in the order, maintaining user-added categories at the end
+        existing_categories = set(category_order)
+        ordered_list = []
+        
+        # First add all preferred categories that exist
+        for cat in preferred_order:
+            if cat in existing_categories:
+                ordered_list.append(cat)
+        
+        # Then add any user-added categories that aren't in the preferred order
+        for cat in category_order:
+            if cat not in ordered_list:
+                ordered_list.append(cat)
+        
+        st.session_state.model_data["liquidity_data"]["category_order"] = ordered_list
 
 # Note: Payroll taxes are now calculated in the payroll model and included in Payroll
 
@@ -1222,7 +1323,11 @@ def create_expense_table_with_years(categories, show_monthly=True):
                 for month in years_dict[year]:
                     if month in edited_df.columns:
                         value = edited_df.iloc[i][month]
-                        new_value = abs(float(value)) if value != 0 else 0
+                        # Convert value - handle strings, empty values, etc.
+                        try:
+                            new_value = abs(float(value)) if value and str(value).strip() != '' else 0
+                        except (ValueError, TypeError):
+                            new_value = 0
                         
                         # Ensure category exists in expenses dictionary
                         if category not in st.session_state.model_data["liquidity_data"]["expenses"]:
@@ -1230,21 +1335,23 @@ def create_expense_table_with_years(categories, show_monthly=True):
                         
                         # Check if value changed
                         old_value = st.session_state.model_data["liquidity_data"]["expenses"][category].get(month, 0)
-                        if old_value != new_value:
+                        if abs(old_value - new_value) > 0.01:  # Use small epsilon for float comparison
                             changes_made = True
                             st.session_state.model_data["liquidity_data"]["expenses"][category][month] = new_value
+                            
+
     
-    # Save changes to database if any changes were made
+    # Save to database immediately if changes were made
     if changes_made:
         try:
             # Save all liquidity data to database including updated expenses
             success = save_liquidity_data_to_database(st.session_state.model_data)
             if success:
-                st.success("✅ Cash disbursements saved to database successfully!")
+                st.success("✅ Cash disbursements saved successfully!")
             else:
-                st.error("❌ Error saving cash disbursements to database")
+                st.error("❌ Failed to save cash disbursements")
         except Exception as e:
-            st.error(f"❌ Error saving to database: {e}")
+            st.error(f"❌ Save error: {str(e)}")
     
     return edited_df
 
@@ -1383,10 +1490,10 @@ def update_sga_expenses():
         "Company Vehicle": "Company Vehicle",
         "Grant Writer": "Grant Writer",
         "Insurance": "Insurance",
-        "Legal / Professional Fees": "Legal / Professional Fees",
-        "Permitting/Fees/Licensing": "Permitting/Fees/Licensing",
+        "Legal Professional Fees": "Legal Professional Fees",
+        "Permitting Fees Licensing": "Permitting Fees Licensing",
         "Shared Services": "Shared Services",
-        "Consultants/Audit/Tax": "Consultants/Audit/Tax",
+        "Consultants Audit Tax": "Consultants Audit Tax",
         "Pritchard Amex": "Pritchard Amex",
         "Contingencies": "Contingencies",
     }
@@ -1633,8 +1740,8 @@ st.markdown("""
 # Initialize data
 initialize_liquidity_data()
 
-# Load existing data from database on page load (but don't override fresh sync data)
-if not st.session_state.get("headcount_sync_in_progress", False) and not st.session_state.get("just_synced_headcount", False):
+# Load existing data from database on page load (but don't override fresh sync data or bulk edit changes)
+if not st.session_state.get("headcount_sync_in_progress", False) and not st.session_state.get("just_synced_headcount", False) and not st.session_state.get("just_applied_bulk_edit", False):
     try:
         database_liquidity_data = load_liquidity_data_from_database()
         if database_liquidity_data:
@@ -1696,9 +1803,13 @@ def auto_sync_revenue_from_income_statement():
             )
         st.session_state.model_data["liquidity_data"]["revenue"] = total_revenue
 
+
+
 # Auto-sync revenue automatically when page loads
 try:
     auto_sync_revenue_from_income_statement()
+    # Clean up any duplicate categories on page load
+    cleanup_duplicate_categories()
 except Exception as e:
     # If revenue data doesn't exist yet, initialize empty revenue
     if "revenue" not in st.session_state.model_data:
@@ -1708,7 +1819,6 @@ except Exception as e:
             "Implementation": {month: 0 for month in months},
             "Maintenance": {month: 0 for month in months}
         }
-    auto_sync_revenue_from_income_statement()
 
 # Auto-populate payroll and contractor data from headcount tab
 # update_liquidity_with_payroll()
@@ -1812,6 +1922,12 @@ with st.expander("💵 Cash Receipts", expanded=False):
             **{col: st.column_config.TextColumn(col, disabled=True) for col in columns[1:-1]}
         }
 
+    # Store original data for comparison
+    if "cash_receipts_original" not in st.session_state:
+        st.session_state.cash_receipts_original = {}
+        for data_key in cash_data_keys:
+            st.session_state.cash_receipts_original[data_key] = st.session_state.model_data["liquidity_data"][data_key].copy()
+
     # Display editable cash flow table
     edited_cash_df = st.data_editor(
         cash_df,
@@ -1824,8 +1940,8 @@ with st.expander("💵 Cash Receipts", expanded=False):
         key="cash_flow_editor"
     )
 
-    # Update session state with cash flow edits
-    cash_receipts_changed = False
+    # Update session state and check for changes (using revenue tab's exact pattern)
+    changes_made = False
     for i, data_key in enumerate(cash_data_keys):
         if show_monthly:
             for year in sorted(years_dict.keys()):
@@ -1833,21 +1949,24 @@ with st.expander("💵 Cash Receipts", expanded=False):
                     if month in edited_cash_df.columns:
                         value = edited_cash_df.iloc[i][month]
                         new_value = float(value) if value != '' else 0
-                        old_value = st.session_state.model_data["liquidity_data"][data_key].get(month, 0)
-                        if new_value != old_value:
-                            cash_receipts_changed = True
+                        old_value = st.session_state.cash_receipts_original[data_key].get(month, 0)
+                        
+                        if old_value != new_value:
+                            changes_made = True
                             st.session_state.model_data["liquidity_data"][data_key][month] = new_value
+                            st.session_state.cash_receipts_original[data_key][month] = new_value
     
-    # Save cash receipts changes to database
-    if cash_receipts_changed:
+    # Save to database immediately if changes were made (using revenue tab's exact pattern)
+    if changes_made:
         try:
+            # Save all liquidity data to database including updated cash receipts
             success = save_liquidity_data_to_database(st.session_state.model_data)
             if success:
-                st.success("✅ Cash receipts saved to database successfully!")
-            else:
-                st.error("❌ Error saving cash receipts to database")
+                st.success("💾 Cash receipts auto-saved!")
+            # Also try the comprehensive save function like other tabs
+            auto_save_data(st.session_state.model_data, "Liquidity Forecast")
         except Exception as e:
-            st.error(f"❌ Error saving cash receipts: {e}")
+            st.error(f"Save failed: {e}")
 
 # CASH DISBURSEMENTS SECTION - COLLAPSIBLE
 with st.expander("💸 Cash Disbursements", expanded=False):
@@ -1877,30 +1996,40 @@ with st.expander("💸 Cash Disbursements", expanded=False):
         with exp_col3:
             st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
             if st.button("➕ Add Category", type="primary"):
-                if not new_category or new_category.strip() == "":
+                # Clean the category name
+                clean_new_category = ' '.join(new_category.split()).strip()
+                
+                if not clean_new_category:
                     st.error("Please enter a category name!")
-                elif new_category in st.session_state.model_data["liquidity_data"]["expense_categories"]:
-                    st.error(f"Category '{new_category}' already exists!")
                 else:
-                    # Sync to database first
-                    if sync_category_to_database(new_category, action="add", classification=classification):
-                        # Add new category to session data
-                        st.session_state.model_data["liquidity_data"]["expense_categories"][new_category] = {
-                            "classification": classification, 
-                            "editable": True
-                        }
-                        # Initialize data for new category
-                        st.session_state.model_data["liquidity_data"]["expenses"][new_category] = {month: 0 for month in months}
-                        
-                        # Add to category_order list so it shows up in the table
-                        if "category_order" not in st.session_state.model_data["liquidity_data"]:
-                            st.session_state.model_data["liquidity_data"]["category_order"] = []
-                        st.session_state.model_data["liquidity_data"]["category_order"].append(new_category)
-                        
-                        st.success(f"Added '{new_category}' to {classification} and synced to database")
-                        st.rerun()
+                    # Check for duplicates (case-insensitive)
+                    existing_categories_lower = {cat.lower(): cat for cat in st.session_state.model_data["liquidity_data"]["expense_categories"].keys()}
+                    
+                    if clean_new_category.lower() in existing_categories_lower:
+                        st.error(f"Category '{existing_categories_lower[clean_new_category.lower()]}' already exists!")
                     else:
-                        st.error("Failed to add category to database")
+                        # Sync to database first
+                        if sync_category_to_database(clean_new_category, action="add", classification=classification):
+                            # Add new category to session data
+                            st.session_state.model_data["liquidity_data"]["expense_categories"][clean_new_category] = {
+                                "classification": classification, 
+                                "editable": True
+                            }
+                            # Initialize data for new category
+                            st.session_state.model_data["liquidity_data"]["expenses"][clean_new_category] = {month: 0 for month in months}
+                            
+                            # Add to category_order list so it shows up in the table
+                            if "category_order" not in st.session_state.model_data["liquidity_data"]:
+                                st.session_state.model_data["liquidity_data"]["category_order"] = []
+                            st.session_state.model_data["liquidity_data"]["category_order"].append(clean_new_category)
+                            
+                            st.success(f"Added '{clean_new_category}' to {classification} and synced to database")
+                            
+                            # Clean up any duplicates that might have been created
+                            cleanup_duplicate_categories()
+                            st.rerun()
+                        else:
+                            st.error("Failed to add category to database")
 
     elif management_action == "Delete Expense Category":
         delete_col1, delete_col2, delete_col3, delete_col4 = st.columns([0.75, 1.083, 1.083, 1.083])
@@ -2041,9 +2170,24 @@ with st.expander("💸 Cash Disbursements", expanded=False):
                     else:
                         st.warning(f"'{st.session_state.selected_reorder_category}' is already at the bottom!")
 
-    # Get current expense categories in the specified order
-    expense_categories = st.session_state.model_data["liquidity_data"]["category_order"]
-
+        # Get current expense categories in the specified order
+    # Clean up any duplicates first
+    cleanup_duplicate_categories()
+    
+    # Get categories from category_order but ensure no duplicates
+    raw_categories = st.session_state.model_data["liquidity_data"].get("category_order", [])
+    # Remove duplicates while preserving order
+    seen = set()
+    expense_categories = []
+    for cat in raw_categories:
+        clean_cat = ' '.join(cat.split()).strip()
+        if clean_cat.lower() not in seen:
+            seen.add(clean_cat.lower())
+            expense_categories.append(clean_cat)
+    
+    # Update the cleaned category order
+    st.session_state.model_data["liquidity_data"]["category_order"] = expense_categories
+    
     st.info("💡 Payroll & Contractors automatically sync from the Headcount dashboard starting from next month forward. Cash disbursements import/export from cash_flow table in Supabase and automatically flow to SG&A section of Income Statement")
     
     # Auto-sync headcount data from next month forward
@@ -2071,6 +2215,14 @@ with st.expander("💸 Cash Disbursements", expanded=False):
 
     # Create expense table
     if expense_categories:
+        # Clear force refresh flag if set
+        if st.session_state.get("force_expense_refresh", False):
+            st.session_state.force_expense_refresh = False
+            
+        # Clear bulk edit flag after table is displayed to allow normal database loading next time
+        if st.session_state.get("just_applied_bulk_edit", False):
+            st.session_state.just_applied_bulk_edit = False
+            
         create_expense_table_with_years(expense_categories, show_monthly)
         
         # Clear the just_synced flag after table is displayed
@@ -2078,6 +2230,247 @@ with st.expander("💸 Cash Disbursements", expanded=False):
             st.session_state.just_synced_headcount = False
     else:
         st.warning("No expense categories found.")
+
+# BULK EDIT SECTION
+st.markdown('<div class="section-header">✏️ Bulk Edit</div>', unsafe_allow_html=True)
+
+with st.expander("✏️ Bulk Edit Liquidity Assumptions", expanded=False):
+    # Cash flow type selection
+    bulk_edit_col1, bulk_edit_col2 = st.columns(2)
+
+    with bulk_edit_col1:
+        selected_cash_flow_types = st.multiselect(
+            "Select Cash Flow Types:",
+            options=["Cash Receipts", "Cash Disbursements"],
+            default=[],
+            key="bulk_edit_cash_flow_types"
+        )
+
+    with bulk_edit_col2:
+        # Dynamic category options based on selected cash flow types
+        category_options = []
+        if "Cash Receipts" in selected_cash_flow_types:
+            category_options.extend(["Revenue", "Investment", "Other"])
+        if "Cash Disbursements" in selected_cash_flow_types:
+            # Use the already cleaned expense_categories list
+            category_options.extend(expense_categories)
+        
+        selected_categories = st.multiselect(
+            "Select Categories:",
+            options=category_options,
+            key="bulk_edit_categories"
+        )
+
+    # Month range selection
+    bulk_month_col1, bulk_month_col2 = st.columns(2)
+
+    with bulk_month_col1:
+        bulk_start_month = st.selectbox(
+            "Start Month:",
+            options=months,
+            index=0,
+            key="bulk_edit_start_month_liquidity"
+        )
+        
+    with bulk_month_col2:
+        bulk_end_month = st.selectbox(
+            "End Month:",
+            options=months,
+            index=min(11, len(months)-1),
+            key="bulk_edit_end_month_liquidity"
+        )
+
+    # Filter months for the selected range
+    bulk_start_idx = months.index(bulk_start_month)
+    bulk_end_idx = months.index(bulk_end_month)
+    if bulk_start_idx <= bulk_end_idx:
+        bulk_selected_months = months[bulk_start_idx:bulk_end_idx+1]
+    else:
+        bulk_selected_months = []
+
+    if bulk_selected_months and selected_categories:
+        
+        # Value input and operation selection
+        bulk_value_col1, bulk_value_col2, bulk_value_col3 = st.columns(3)
+        
+        with bulk_value_col1:
+            bulk_operation = st.selectbox(
+                "Operation:",
+                options=["Set Value", "Add to Existing", "Multiply by Factor", "Percentage Change"],
+                key="bulk_operation_liquidity"
+            )
+        
+        with bulk_value_col2:
+            bulk_value = st.number_input(
+                "Value:" if bulk_operation == "Set Value" else
+                "Amount to Add:" if bulk_operation == "Add to Existing" else
+                "Multiplication Factor:" if bulk_operation == "Multiply by Factor" else
+                "Percentage Change (%):",
+                value=0.0,
+                key="bulk_edit_value_liquidity"
+            )
+        
+        with bulk_value_col3:
+            st.markdown("<br>", unsafe_allow_html=True)  # Spacing
+            if st.button("🔄 Preview Changes", use_container_width=True, key="preview_bulk_liquidity"):
+                st.session_state.show_bulk_preview_liquidity = True
+            
+        # Preview changes
+        if st.session_state.get("show_bulk_preview_liquidity", False):
+            preview_data = []
+            
+            for category in selected_categories:
+                # Determine data key based on category
+                data_key = None
+                cash_flow_type = None
+                
+                if category == "Revenue":
+                    data_key = "revenue"
+                    cash_flow_type = "Cash Receipts"
+                elif category == "Investment":
+                    data_key = "investment"
+                    cash_flow_type = "Cash Receipts"
+                elif category == "Other":
+                    data_key = "other_cash_receipts"
+                    cash_flow_type = "Cash Receipts"
+                else:
+                    # It's an expense category
+                    data_key = category
+                    cash_flow_type = "Cash Disbursements"
+                
+                if data_key:
+                    for month in bulk_selected_months[:6]:  # Show first 6 months only for preview
+                        if cash_flow_type == "Cash Receipts":
+                            current_value = st.session_state.model_data["liquidity_data"][data_key].get(month, 0)
+                        else:
+                            current_value = st.session_state.model_data["liquidity_data"]["expenses"].get(data_key, {}).get(month, 0)
+                        
+                        if bulk_operation == "Set Value":
+                            new_value = bulk_value
+                        elif bulk_operation == "Add to Existing":
+                            new_value = current_value + bulk_value
+                        elif bulk_operation == "Multiply by Factor":
+                            new_value = current_value * bulk_value
+                        elif bulk_operation == "Percentage Change":
+                            new_value = current_value * (1 + bulk_value / 100)
+                        
+                        preview_data.append({
+                            "Type": cash_flow_type,
+                            "Category": category,
+                            "Month": month,
+                            "Current Value": f"{current_value:,.2f}",
+                            "New Value": f"{new_value:,.2f}",
+                            "Change": f"{new_value - current_value:+,.2f}"
+                        })
+            
+            if preview_data:
+                preview_df = pd.DataFrame(preview_data)
+                st.dataframe(preview_df, use_container_width=True, height=300)
+                
+                if len(bulk_selected_months) > 6:
+                    st.info(f"📝 Preview shows first 6 months. Changes will be applied to all {len(bulk_selected_months)} selected months.")
+                
+                # Apply changes button
+                bulk_apply_col1, bulk_apply_col2 = st.columns([1, 1])
+                with bulk_apply_col1:
+                    if st.button("✅ Apply Changes", type="primary", use_container_width=True, key="apply_bulk_liquidity"):
+                        try:
+                            changes_made = 0
+                            
+                            # Show summary of what we're applying
+                            st.info(f"📝 Applying {bulk_operation} with value {bulk_value:,.0f} to {len(selected_categories)} categories across {len(bulk_selected_months)} months")
+                            
+                            for category in selected_categories:
+                                # Determine data key and structure based on category
+                                data_key = None
+                                cash_flow_type = None
+                                
+                                if category == "Revenue":
+                                    data_key = "revenue"
+                                    cash_flow_type = "Cash Receipts"
+                                elif category == "Investment":
+                                    data_key = "investment"
+                                    cash_flow_type = "Cash Receipts"
+                                elif category == "Other":
+                                    data_key = "other_cash_receipts"
+                                    cash_flow_type = "Cash Receipts"
+                                else:
+                                    # It's an expense category
+                                    data_key = category
+                                    cash_flow_type = "Cash Disbursements"
+                                
+                                if data_key:
+                                    if cash_flow_type == "Cash Receipts":
+                                        # Initialize data structure if needed
+                                        if data_key not in st.session_state.model_data["liquidity_data"]:
+                                            st.session_state.model_data["liquidity_data"][data_key] = {}
+                                        
+                                        for month in bulk_selected_months:
+                                            current_value = st.session_state.model_data["liquidity_data"][data_key].get(month, 0)
+                                            
+                                            if bulk_operation == "Set Value":
+                                                new_value = bulk_value
+                                            elif bulk_operation == "Add to Existing":
+                                                new_value = current_value + bulk_value
+                                            elif bulk_operation == "Multiply by Factor":
+                                                new_value = current_value * bulk_value
+                                            elif bulk_operation == "Percentage Change":
+                                                new_value = current_value * (1 + bulk_value / 100)
+                                            
+                                            st.session_state.model_data["liquidity_data"][data_key][month] = new_value
+                                            changes_made += 1
+                                    
+                                    else:  # Cash Disbursements
+                                        # Initialize expenses structure if needed
+                                        if "expenses" not in st.session_state.model_data["liquidity_data"]:
+                                            st.session_state.model_data["liquidity_data"]["expenses"] = {}
+                                        if data_key not in st.session_state.model_data["liquidity_data"]["expenses"]:
+                                            st.session_state.model_data["liquidity_data"]["expenses"][data_key] = {}
+                                        
+                                        for month in bulk_selected_months:
+                                            current_value = st.session_state.model_data["liquidity_data"]["expenses"][data_key].get(month, 0)
+                                            
+                                            if bulk_operation == "Set Value":
+                                                new_value = bulk_value
+                                            elif bulk_operation == "Add to Existing":
+                                                new_value = current_value + bulk_value
+                                            elif bulk_operation == "Multiply by Factor":
+                                                new_value = current_value * bulk_value
+                                            elif bulk_operation == "Percentage Change":
+                                                new_value = current_value * (1 + bulk_value / 100)
+                                            
+                                            st.session_state.model_data["liquidity_data"]["expenses"][data_key][month] = new_value
+                                            changes_made += 1
+                                            
+
+                            
+                            # Save to database
+                            success = save_liquidity_data_to_database(st.session_state.model_data)
+                            
+                            if success:
+                                st.success(f"✅ Successfully applied {changes_made} changes and saved to database!")
+                            else:
+                                st.success(f"✅ Successfully applied {changes_made} changes!")
+                                st.warning("⚠️ Changes applied but database save may have failed")
+                            
+                            # Clear the preview and force complete refresh
+                            st.session_state.show_bulk_preview_liquidity = False
+                            st.session_state.force_expense_refresh = True
+                            st.session_state.just_applied_bulk_edit = True
+                            
+                            # Clear any cached data that might prevent table refresh
+                            if hasattr(st.session_state, 'cached_expense_data'):
+                                del st.session_state.cached_expense_data
+                            
+                            st.rerun()
+                            
+                        except Exception as e:
+                            st.error(f"❌ Error applying bulk changes: {str(e)}")
+                
+                with bulk_apply_col2:
+                    if st.button("❌ Cancel", use_container_width=True, key="cancel_bulk_liquidity"):
+                        st.session_state.show_bulk_preview_liquidity = False
+                        st.rerun()
 
 st.markdown("---")
 
@@ -2655,8 +3048,37 @@ with data_col1:
     if st.button("💾 Save Data", type="primary", use_container_width=True):
         try:
             update_sga_expenses()  # Update SG&A before saving (KEEP THIS!)
+            
+            # Ensure liquidity_data structure exists before saving
+            if "liquidity_data" not in st.session_state.model_data:
+                initialize_liquidity_data()
+            
+            # Clean up any duplicate category names (remove extra spaces)
+            if "expenses" in st.session_state.model_data["liquidity_data"]:
+                cleaned_expenses = {}
+                for category, data in st.session_state.model_data["liquidity_data"]["expenses"].items():
+                    # Clean category name - remove extra spaces
+                    clean_category = ' '.join(category.split())
+                    if clean_category in cleaned_expenses:
+                        # Merge duplicate entries (shouldn't happen but just in case)
+                        for month, value in data.items():
+                            if value != 0:  # Use non-zero value
+                                cleaned_expenses[clean_category][month] = value
+                    else:
+                        cleaned_expenses[clean_category] = data
+                st.session_state.model_data["liquidity_data"]["expenses"] = cleaned_expenses
+            
+            # Save to session state first
             save_data_to_source(st.session_state.model_data)
-            st.success("✅ Data saved successfully!")
+            
+            # Also explicitly save liquidity data to database
+            liquidity_success = save_liquidity_data_to_database(st.session_state.model_data)
+            
+            if liquidity_success:
+                st.success("✅ Data saved successfully to database!")
+            else:
+                st.warning("⚠️ Data saved locally but database sync may have failed.")
+                
         except Exception as e:
             st.error(f"❌ Error saving data: {str(e)}")
 
@@ -2665,15 +3087,28 @@ with data_col2:
         load_effective_month = st.session_state.get("load_effective_month", "All Data (Replace Everything)")
         if load_effective_month == "All Data (Replace Everything)":
             st.session_state.model_data = load_data_from_source()
+            # Clean up any duplicates after loading
+            cleanup_duplicate_categories()
             load_message = "All data loaded successfully!"
             initialize_liquidity_data()
         else:
             st.session_state.model_data = load_data_from_month(load_effective_month)
+            # Clean up any duplicates after loading
+            cleanup_duplicate_categories()
             load_message = f"Data loaded from {load_effective_month} forward, historical expenses preserved!"
             initialize_liquidity_data()
         
         st.success(load_message)
         st.rerun()
+
+# Add cleanup button in an unused column
+with data_col4:
+    if st.button("🧹 Fix Categories", help="Clean up duplicate spaces in category names like 'Legal  Professional fees'", use_container_width=True):
+        if cleanup_category_names_in_database():
+            st.success("✅ Category names cleaned!")
+            st.rerun()
+        else:
+            st.error("❌ Failed to clean category names")
 
 with data_col3:
     # Create Excel export data

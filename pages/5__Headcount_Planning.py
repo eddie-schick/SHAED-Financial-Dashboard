@@ -761,6 +761,10 @@ def create_employee_table():
     # Create DataFrame
     df = pd.DataFrame(table_data)
     
+    # Sort by hire date
+    if not df.empty:
+        df = df.sort_values('Hire Date', na_position='last')
+    
     # Column configuration
     column_config = {
         "Employee Name": st.column_config.TextColumn("Employee Name", width="medium"),
@@ -901,11 +905,15 @@ def create_employee_table():
             
             if employee_records:
                 # Use upsert to safely update/insert employees
-                supabase.table('employees').upsert(employee_records, on_conflict='employee_id').execute()
+                result = supabase.table('employees').upsert(employee_records, on_conflict='employee_id').execute()
+                st.success(f"✅ Successfully saved {len(employee_records)} employee(s) to database")
+            else:
+                st.info("ℹ️ No employee data to save")
                 
     except Exception as e:
-        # Silent error handling - no user-visible error messages
-        pass
+        # Show error message to user so they know what went wrong
+        st.error(f"❌ Error saving employee data to database: {str(e)}")
+        st.info("💡 Tip: Check your database connection and ensure the 'employees' table exists with the correct schema.")
     
     return edited_df
 
@@ -1097,11 +1105,15 @@ def create_bonus_table():
             
             if bonus_records:
                 # Insert new bonus records
-                supabase.table('employee_bonuses').insert(bonus_records).execute()
+                result = supabase.table('employee_bonuses').insert(bonus_records).execute()
+                st.success(f"✅ Successfully saved {len(bonus_records)} bonus(es) to database")
+            else:
+                st.info("ℹ️ No bonus data to save")
                 
     except Exception as e:
-        # Silent error handling - no user-visible error messages
-        pass
+        # Show error message to user so they know what went wrong
+        st.error(f"❌ Error saving bonus data to database: {str(e)}")
+        st.info("💡 Tip: Check your database connection and ensure the 'employee_bonuses' table exists with the correct schema.")
     
     return edited_df
 
@@ -1159,6 +1171,10 @@ def create_contractor_table():
     
     # Create DataFrame
     df = pd.DataFrame(table_data)
+    
+    # Sort by start date
+    if not df.empty:
+        df = df.sort_values('Start Date', na_position='last')
     
     # If no contractors exist, create empty row
     if df.empty:
@@ -1314,11 +1330,15 @@ def create_contractor_table():
             
             if contractor_records:
                 # Use upsert to safely update/insert contractors
-                supabase.table('contractors').upsert(contractor_records, on_conflict='contractor_id').execute()
+                result = supabase.table('contractors').upsert(contractor_records, on_conflict='contractor_id').execute()
+                st.success(f"✅ Successfully saved {len(contractor_records)} contractor(s) to database")
+            else:
+                st.info("ℹ️ No contractor data to save")
                 
     except Exception as e:
-        # Silent error handling - no user-visible error messages
-        pass
+        # Show error message to user so they know what went wrong
+        st.error(f"❌ Error saving contractor data to database: {str(e)}")
+        st.info("💡 Tip: Check your database connection and ensure the 'contractors' table exists with the correct schema.")
     
     return edited_df
 

@@ -2340,4 +2340,3 @@ st.markdown("""
     <small>© 2025 SHAED - All rights reserved</small>
 </div>
 """, unsafe_allow_html=True)
-

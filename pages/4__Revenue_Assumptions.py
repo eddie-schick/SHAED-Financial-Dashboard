@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date
+import time
 import plotly.graph_objects as go
-from database import load_data, save_data, load_data_from_source, save_data_to_source, save_comprehensive_revenue_assumptions_to_database
+from database import load_data, save_data, load_data_from_source, save_data_to_source, save_comprehensive_revenue_assumptions_to_database, load_revenue_assumptions_from_database, load_comprehensive_revenue_data_from_database
 
 # Configure page
 st.set_page_config(
@@ -568,13 +569,14 @@ def format_number(num):
         return "0"
     return f"{num:,.0f}"
 
-# Stakeholder list (all 20 stakeholders)
+# Stakeholder list (first 21 business segments from Supabase)
 stakeholders = [
-    "Equipment Manufacturer", "Dealership", "Corporate", "Charging as a Service",
-    "Charging Hardware", "Depot", "End User", "Infrastructure Partner",
-    "Finance Partner", "Fleet Management Company", "Grants", "Logistics",
-    "Non Customer", "OEM", "Service", "Technology Partner",
-    "Upfitter/Distributor", "Utility/Energy Company", "Insurance Company", "Consultant"
+    "Dealership", "End User", "Equipment Manufacturer", "Upfitter",
+    "Depot", "Fleet Management Company", "Logistics", "OEM",
+    "Traditional Finance Provider", "Channel Partner", "Charging OEM", "Insurance Provider",
+    "Maintenance Provider", "Charging as a Service", "EPC", "Government Agency",
+    "Grant Administrator", "Operating and Maintenance Provider", "Remarketing Specialists", "Technology Solutions",
+    "Utility Provider"
 ]
 
 # Transactional revenue categories
@@ -1044,11 +1046,16 @@ def create_stakeholder_table_with_years(metric_name, data_key, filtered_stakehol
                            'maintenance_new_customers', 'maintenance_pricing']:
                 calculate_all_revenue()
             
-            # Save all revenue assumptions and calculations to database
-            save_comprehensive_revenue_assumptions_to_database(st.session_state.model_data)
+            # Auto-save all revenue assumptions and calculations to database
+            success = save_comprehensive_revenue_assumptions_to_database(st.session_state.model_data)
+            if success:
+                # Clear cache to ensure fresh data on next load
+                load_revenue_assumptions_from_database.clear()
+                load_comprehensive_revenue_data_from_database.clear()
+            else:
+                st.error("⚠️ Failed to save data. Please try again or refresh the page.")
         except Exception as e:
-            # Silent error handling
-            pass
+            st.error(f"❌ Error saving data: {str(e)}")
     
     return edited_df
 
@@ -1180,6 +1187,11 @@ def create_transactional_table_with_years(metric_name, data_key, default_value=0
                 
                 revenue_assumptions_success = save_revenue_assumptions_to_database(st.session_state.model_data)
                 revenue_calculations_success = save_revenue_calculations_to_database(st.session_state.model_data)
+                
+                if revenue_assumptions_success or revenue_calculations_success:
+                    # Clear cache to ensure fresh data on next load
+                    load_revenue_assumptions_from_database.clear()
+                    load_comprehensive_revenue_data_from_database.clear()
                 
                 # For transaction volume, the key data (customer assumptions) is saved successfully
                 # Revenue calculations are secondary and shouldn't fail the entire save
@@ -1320,7 +1332,7 @@ else:
     filtered_stakeholders = [selected_stakeholder]
 
 # REVENUE ASSUMPTIONS TABS
-st.markdown('<div class="section-header">💼 Revenue Stream Details</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-header">💼 Revenue Assumptions</div>', unsafe_allow_html=True)
 
 # Create tabs for different revenue streams
 tab1, tab2, tab3, tab4 = st.tabs(["📋 Subscription", "🔄 Transactional", "🚀 Implementation", "🔧 Maintenance"])
@@ -1380,6 +1392,249 @@ with tab4:
         
     else:
         st.warning("⚠️ No stakeholders selected. Please choose stakeholders from the filter above.")
+
+# BULK EDIT SECTION
+st.markdown("---")
+st.markdown('<div class="section-header">✏️ Bulk Edit</div>', unsafe_allow_html=True)
+
+with st.expander("✏️ Bulk Edit Revenue Assumptions", expanded=False):
+    # Revenue stream selection
+    bulk_edit_col1, bulk_edit_col2 = st.columns(2)
+
+    with bulk_edit_col1:
+        selected_revenue_streams = st.multiselect(
+            "Select Revenue Streams:",
+            options=["Subscription", "Transactional", "Implementation", "Maintenance"],
+            default=[],
+            key="bulk_edit_streams"
+        )
+
+    with bulk_edit_col2:
+        # Dynamic assumption types based on selected streams
+        assumption_options = []
+        if "Subscription" in selected_revenue_streams:
+            assumption_options.extend(["New Customers", "Monthly Pricing", "Churn Rates"])
+        if "Transactional" in selected_revenue_streams:
+            assumption_options.extend(["Transaction Volume", "Price per Transaction", "Referral Fee %"])
+        if "Implementation" in selected_revenue_streams:
+            assumption_options.extend(["Implementation Engagements", "Implementation Fees"])
+        if "Maintenance" in selected_revenue_streams:
+            assumption_options.extend(["Maintenance Contracts", "Maintenance Fees"])
+        
+        selected_assumptions = st.multiselect(
+            "Select Assumption Types:",
+            options=assumption_options,
+            key="bulk_edit_assumptions"
+        )
+
+    # Stakeholder/Category selection
+    bulk_stakeholder_col1, bulk_stakeholder_col2 = st.columns(2)
+
+    with bulk_stakeholder_col1:
+        # For transactional, show categories; for others, show stakeholders
+        if "Transactional" in selected_revenue_streams:
+            entity_options = ["Charging", "Vehicle", "Financing", "Other Revenue"]
+            entity_label = "Category"
+        else:
+            entity_options = stakeholders
+            entity_label = "Category"
+        
+        selected_entities = st.multiselect(
+            f"Select {entity_label}:",
+            options=entity_options,
+            default=[],  # Default to blank
+            key="bulk_edit_entities"
+        )
+
+    with bulk_stakeholder_col2:
+        # Month range selection
+        bulk_start_month = st.selectbox(
+            "Start Month:",
+            options=months,
+            index=0,
+            key="bulk_edit_start_month"
+        )
+        
+        bulk_end_month = st.selectbox(
+            "End Month:",
+            options=months,
+            index=min(11, len(months)-1),
+            key="bulk_edit_end_month"
+        )
+
+    # Filter months for the selected range
+    bulk_start_idx = months.index(bulk_start_month)
+    bulk_end_idx = months.index(bulk_end_month)
+    if bulk_start_idx <= bulk_end_idx:
+        bulk_selected_months = months[bulk_start_idx:bulk_end_idx+1]
+    else:
+        st.error("❌ End month must be after start month")
+        bulk_selected_months = []
+
+    if bulk_selected_months and selected_assumptions and selected_entities:
+        
+        # Value input and operation selection
+        bulk_value_col1, bulk_value_col2, bulk_value_col3 = st.columns(3)
+        
+        with bulk_value_col1:
+            bulk_operation = st.selectbox(
+                "Operation:",
+                options=["Set Value", "Add to Existing", "Multiply by Factor", "Percentage Change"],
+                key="bulk_operation"
+            )
+        
+        with bulk_value_col2:
+            bulk_value = st.number_input(
+                "Value:" if bulk_operation == "Set Value" else
+                "Amount to Add:" if bulk_operation == "Add to Existing" else
+                "Multiplication Factor:" if bulk_operation == "Multiply by Factor" else
+                "Percentage Change (%):",
+                value=0.0,
+                key="bulk_edit_value"
+            )
+        
+        with bulk_value_col3:
+            st.markdown("<br>", unsafe_allow_html=True)  # Spacing
+            if st.button("🔄 Preview Changes", use_container_width=True):
+                st.session_state.show_bulk_preview = True
+            
+        # Preview changes
+        if st.session_state.get('show_bulk_preview', False):
+            st.markdown("### 👁️ Preview Changes")
+            
+            preview_data = []
+            for assumption in selected_assumptions:
+                # Map assumption to data key
+                data_key = None
+                if assumption == "New Customers":
+                    data_key = "subscription_new_customers"
+                elif assumption == "Monthly Pricing":
+                    data_key = "subscription_pricing"
+                elif assumption == "Churn Rates":
+                    data_key = "subscription_churn_rates"
+                elif assumption == "Transaction Volume":
+                    data_key = "transactional_volume"
+                elif assumption == "Price per Transaction":
+                    data_key = "transactional_price"
+                elif assumption == "Referral Fee %":
+                    data_key = "transactional_referral_fee"
+                elif assumption == "Implementation Engagements":
+                    data_key = "implementation_new_customers"
+                elif assumption == "Implementation Fees":
+                    data_key = "implementation_pricing"
+                elif assumption == "Maintenance Contracts":
+                    data_key = "maintenance_new_customers"
+                elif assumption == "Maintenance Fees":
+                    data_key = "maintenance_pricing"
+                
+                if data_key:
+                    for entity in selected_entities:
+                        for month in bulk_selected_months[:6]:  # Show first 6 months only for preview
+                            current_value = st.session_state.model_data.get(data_key, {}).get(entity, {}).get(month, 0)
+                            
+                            if bulk_operation == "Set Value":
+                                new_value = bulk_value
+                            elif bulk_operation == "Add to Existing":
+                                new_value = current_value + bulk_value
+                            elif bulk_operation == "Multiply by Factor":
+                                new_value = current_value * bulk_value
+                            elif bulk_operation == "Percentage Change":
+                                new_value = current_value * (1 + bulk_value / 100)
+                            
+                            preview_data.append({
+                                "Assumption": assumption,
+                                "Entity": entity,
+                                "Month": month,
+                                "Current Value": f"{current_value:,.2f}",
+                                "New Value": f"{new_value:,.2f}",
+                                "Change": f"{new_value - current_value:+,.2f}"
+                            })
+            
+            if preview_data:
+                preview_df = pd.DataFrame(preview_data)
+                st.dataframe(preview_df, use_container_width=True, height=300)
+                
+                if len(bulk_selected_months) > 6:
+                    st.info(f"📝 Preview shows first 6 months. Changes will be applied to all {len(bulk_selected_months)} selected months.")
+                
+                # Apply changes button
+                bulk_apply_col1, bulk_apply_col2 = st.columns([1, 1])
+                with bulk_apply_col1:
+                    if st.button("✅ Apply Changes", type="primary", use_container_width=True):
+                        try:
+                            changes_made = 0
+                            
+                            for assumption in selected_assumptions:
+                                # Map assumption to data key
+                                data_key = None
+                                if assumption == "New Customers":
+                                    data_key = "subscription_new_customers"
+                                elif assumption == "Monthly Pricing":
+                                    data_key = "subscription_pricing"
+                                elif assumption == "Churn Rates":
+                                    data_key = "subscription_churn_rates"
+                                elif assumption == "Transaction Volume":
+                                    data_key = "transactional_volume"
+                                elif assumption == "Price per Transaction":
+                                    data_key = "transactional_price"
+                                elif assumption == "Referral Fee %":
+                                    data_key = "transactional_referral_fee"
+                                elif assumption == "Implementation Engagements":
+                                    data_key = "implementation_new_customers"
+                                elif assumption == "Implementation Fees":
+                                    data_key = "implementation_pricing"
+                                elif assumption == "Maintenance Contracts":
+                                    data_key = "maintenance_new_customers"
+                                elif assumption == "Maintenance Fees":
+                                    data_key = "maintenance_pricing"
+                                
+                                if data_key:
+                                    # Initialize data structure if needed
+                                    if data_key not in st.session_state.model_data:
+                                        st.session_state.model_data[data_key] = {}
+                                    
+                                    for entity in selected_entities:
+                                        if entity not in st.session_state.model_data[data_key]:
+                                            st.session_state.model_data[data_key][entity] = {}
+                                        
+                                        for month in bulk_selected_months:
+                                            current_value = st.session_state.model_data[data_key][entity].get(month, 0)
+                                            
+                                            if bulk_operation == "Set Value":
+                                                new_value = bulk_value
+                                            elif bulk_operation == "Add to Existing":
+                                                new_value = current_value + bulk_value
+                                            elif bulk_operation == "Multiply by Factor":
+                                                new_value = current_value * bulk_value
+                                            elif bulk_operation == "Percentage Change":
+                                                new_value = current_value * (1 + bulk_value / 100)
+                                            
+                                            st.session_state.model_data[data_key][entity][month] = new_value
+                                            changes_made += 1
+                            
+                            # Recalculate revenue
+                            calculate_all_revenue()
+                            
+                            # Save to database
+                            success = save_comprehensive_revenue_assumptions_to_database(st.session_state.model_data)
+                            
+                            if success:
+                                # Clear cache to ensure fresh data on next load
+                                load_revenue_assumptions_from_database.clear()
+                                load_comprehensive_revenue_data_from_database.clear()
+                                st.success(f"✅ Successfully applied {changes_made} changes!")
+                            else:
+                                st.error("⚠️ Failed to save changes. Please try again.")
+                            st.session_state.show_bulk_preview = False
+                            st.rerun()
+                            
+                        except Exception as e:
+                            st.error(f"❌ Error applying bulk changes: {str(e)}")
+                
+                with bulk_apply_col2:
+                    if st.button("❌ Cancel", use_container_width=True):
+                        st.session_state.show_bulk_preview = False
+                        st.rerun()
 
 # REVENUE SUMMARY SECTION
 st.markdown("---")
@@ -2117,40 +2372,38 @@ st.markdown('<div class="section-header">💾 Data Management</div>', unsafe_all
 
 data_col1, data_col2, data_col3, data_col4, data_col5, data_col6 = st.columns([1, 1, 1, 1, 0.75, 1.25])
 
-# Auto-save removed - was overwriting database on page load
-# calculate_all_revenue()  # Calculate revenue before saving
-# try:
-#     save_data_to_source(st.session_state.model_data)
-# except Exception as e:
-#     pass  # Silent error handling
+# Auto-save is triggered when data changes in the edit handlers, not on page load
+# This prevents overwriting database on page refresh
 
 with data_col1:
     if st.button("💾 Save Data", type="primary", use_container_width=True):
         st.write("💾 Saving data to database...")
         try:
+            # Clear all caches before saving to ensure fresh connections
+            from database import get_supabase_client
+            get_supabase_client.clear()
+            
             save_data_to_source(st.session_state.model_data)
+            
+            # Clear data caches after save
+            load_revenue_assumptions_from_database.clear()
+            load_comprehensive_revenue_data_from_database.clear()
+            
             st.success("✅ Data saved successfully to database!")
+            st.info("💡 Refresh the page to see the latest saved data.")
         except Exception as e:
             st.error(f"❌ Error saving data: {str(e)}")
 
 with data_col2:
     if st.button("📂 Load Data", type="secondary", use_container_width=True):
         st.write("🔄 Loading data from database...")
+        # Clear caches to ensure fresh data
+        load_revenue_assumptions_from_database.clear()
+        load_comprehensive_revenue_data_from_database.clear()
+        get_supabase_client.clear()
+        
         loaded_data = load_data_from_source()
         st.session_state.model_data = loaded_data
-        
-        # Debug: Show what was loaded in the UI
-        if 'subscription_new_customers' in loaded_data:
-            dealership_data = loaded_data['subscription_new_customers'].get('Dealership', {})
-            corporate_data = loaded_data['subscription_new_customers'].get('Corporate', {})
-            
-            non_zero_dealership = {k: v for k, v in dealership_data.items() if v > 0}
-            non_zero_corporate = {k: v for k, v in corporate_data.items() if v > 0}
-            
-            st.write(f"🏢 **Dealership non-zero data loaded:** {non_zero_dealership}")  
-            st.write(f"🏛️ **Corporate non-zero data loaded:** {non_zero_corporate}")
-        else:
-            st.write("❌ No subscription_new_customers data found in loaded data")
             
         st.rerun()
 
@@ -2448,6 +2701,94 @@ with data_col3:
         if st.button("📊 Export Excel", type="primary", use_container_width=True):
             st.error(f"❌ Error creating Excel file: {str(e)}")
 
+# Add utility buttons in data_col4 and data_col5
+with data_col4:
+    if st.button("🔄 Reset Connection", use_container_width=True, help="Clear connection cache and reconnect to database"):
+        try:
+            from database import get_supabase_client
+            get_supabase_client.clear()
+            st.success("✅ Connection cache cleared. Try saving again.")
+            st.info("💡 If you're still having issues, refresh the page (F5)")
+        except Exception as e:
+            st.error(f"❌ Error resetting connection: {e}")
+
+with data_col5:
+    clear_option = st.selectbox(
+        "Clear Data",
+        ["Select...", "Clear Jan/Feb 2025", "Clear All Revenue Data"],
+        key="clear_data_option",
+        help="Clear test data from database"
+    )
+    
+    if clear_option == "Clear Jan/Feb 2025":
+        try:
+            from database import get_fresh_supabase_client
+            supabase = get_fresh_supabase_client()
+            
+            # Clear Jan/Feb 2025 data from all tables
+            months_to_clear = ['2025-01-01', '2025-02-01']
+            tables_to_clear = ['customer_assumptions', 'pricing_data', 'churn_rates']
+            
+            total_cleared = 0
+            for table in tables_to_clear:
+                for month in months_to_clear:
+                    result = supabase.table(table).delete().eq('year_month', month).execute()
+                    if result.data:
+                        total_cleared += len(result.data)
+            
+            # Clear caches and reload
+            get_supabase_client.clear()
+            load_revenue_assumptions_from_database.clear()
+            load_comprehensive_revenue_data_from_database.clear()
+            
+            st.success(f"✅ Cleared {total_cleared} test records from Jan/Feb 2025!")
+            st.info("💡 Refresh the page to load fresh data.")
+            st.session_state.clear_data_option = "Select..."
+            st.rerun()
+        except Exception as e:
+            st.error(f"❌ Error clearing test data: {e}")
+            
+    elif clear_option == "Clear All Revenue Data":
+        if 'confirm_clear_all' not in st.session_state:
+            st.session_state.confirm_clear_all = False
+            
+        if not st.session_state.confirm_clear_all:
+            st.warning("⚠️ This will delete ALL revenue assumption data from the database!")
+            if st.button("✅ Yes, Clear All Data", use_container_width=True):
+                st.session_state.confirm_clear_all = True
+                st.rerun()
+        else:
+            try:
+                from database import get_fresh_supabase_client
+                supabase = get_fresh_supabase_client()
+                
+                # Clear ALL data from revenue tables
+                tables_to_clear = ['customer_assumptions', 'pricing_data', 'churn_rates']
+                
+                total_cleared = 0
+                for table in tables_to_clear:
+                    # Delete all records from each table
+                    result = supabase.table(table).delete().neq('year_month', '1900-01-01').execute()
+                    if result.data:
+                        total_cleared += len(result.data)
+                
+                # Clear caches and reload
+                get_supabase_client.clear()
+                load_revenue_assumptions_from_database.clear()
+                load_comprehensive_revenue_data_from_database.clear()
+                
+                # Reset session state
+                st.session_state.confirm_clear_all = False
+                st.session_state.clear_data_option = "Select..."
+                
+                st.success(f"✅ Cleared {total_cleared} total records from all revenue tables!")
+                st.info("💡 The page will refresh with empty data.")
+                time.sleep(2)
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error clearing all data: {e}")
+                st.session_state.confirm_clear_all = False
+
 # Footer
 st.markdown("""
 <div style="text-align: center; color: #666; padding: 2rem; margin-top: 3rem; border-top: 1px solid #e0e0e0;">
@@ -2456,8 +2797,8 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Auto-save removed - was overwriting database on page load
-# try:
-#     save_comprehensive_revenue_assumptions_to_database(st.session_state.model_data)
-# except Exception as e:
-#     pass  # Silent error handling
+# Calculate initial revenue totals on page load
+calculate_all_revenue()
+
+# Note: Auto-save is triggered when data changes in the edit handlers
+# This prevents overwriting database with empty data on page refresh

@@ -7,6 +7,11 @@ import plotly.express as px
 from typing import Any
 from database import load_data, save_data, load_data_from_source, save_data_to_source, enable_autosave, auto_save_data
 
+# Utility function for consistent category key transformation
+def get_category_key(category_name):
+    """Convert category name to consistent key format"""
+    return category_name.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
+
 # Configure page
 st.set_page_config(
     page_title="KPIs",
@@ -1479,7 +1484,7 @@ def get_actual_values(period_type, month_or_period):
         
         # Add dynamic expenses from cash disbursements (liquidity data)
         for category in expense_categories:
-            category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
+            category_key = get_category_key(category)
             # Pull from liquidity_data.expenses which mirrors the cash disbursements table
             actual_amount = st.session_state.model_data.get("liquidity_data", {}).get("expenses", {}).get(category, {}).get(month, 0)
             actuals[category_key] = actual_amount
@@ -1496,7 +1501,7 @@ def get_actual_values(period_type, month_or_period):
         
         # Initialize dynamic expense categories
         for category in expense_categories:
-            category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
+            category_key = get_category_key(category)
             actuals[category_key] = 0
         
         # Sum across all months in the period
@@ -1509,7 +1514,7 @@ def get_actual_values(period_type, month_or_period):
             
             # Sum expenses from cash disbursements
             for category in expense_categories:
-                category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
+                category_key = get_category_key(category)
                 actual_amount = st.session_state.model_data.get("liquidity_data", {}).get("expenses", {}).get(category, {}).get(month, 0)
                 actuals[category_key] += actual_amount
         
@@ -1586,7 +1591,7 @@ if budget_key not in st.session_state.model_data["budget_data"]["monthly_budgets
     # Add all expense categories from liquidity tab (cash disbursements)
     for category in expense_categories:
         # Convert category name to key (replace spaces with underscores, lowercase)
-        category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
+        category_key = get_category_key(category)
         budget_dict[category_key] = 0
     
     st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key] = budget_dict
@@ -1602,7 +1607,7 @@ else:
     
     # Ensure all current expense categories exist (from cash disbursements)
     for category in expense_categories:
-        category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
+        category_key = get_category_key(category)
         if category_key not in existing_budget:
             existing_budget[category_key] = 0
 
@@ -1728,7 +1733,7 @@ elif budget_input_method == "Sync with Model":
                         ]
                         expense_categories = st.session_state.model_data.get("liquidity_data", {}).get("category_order", default_categories)
                         for category in expense_categories:
-                            category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
+                            category_key = get_category_key(category)
                             st.session_state.model_data["budget_data"]["monthly_budgets"][budget_key][category_key] = 0
                         
                         # Also zero out revenue categories
@@ -1848,13 +1853,24 @@ if budget_input_method == "Manual Entry":
 
     # Expense Inputs (Collapsible) - Dynamic from Liquidity Tab Cash Disbursements
     with st.expander("💸 Expense Inputs", expanded=False):
+        # Get expense categories from liquidity data
+        default_categories = [
+            "Payroll", "Contractors", "License Fees", "Travel", "Shows", "Associations", 
+            "Marketing", "Company Vehicle", "Grant Writer", "Insurance", "Legal / Professional Fees",
+            "Permitting/Fees/Licensing", "Shared Services", "Consultants/Audit/Tax", "Pritchard Amex", "Contingencies"
+        ]
+        expense_categories = st.session_state.model_data.get("liquidity_data", {}).get("category_order", default_categories)
+        
+        # Ensure categories are unique to prevent duplicate keys
+        expense_categories = list(dict.fromkeys(expense_categories)) if expense_categories else default_categories
+        
         # Create columns for expense inputs
         num_cols = 2
         expense_cols = st.columns(num_cols)
         
         # Dynamic expense inputs based on liquidity tab categories with auto-save (disabled for YTD)
         for i, category in enumerate(expense_categories):
-            category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
+            category_key = get_category_key(category)
             col_idx = i % num_cols
             
             with expense_cols[col_idx]:
@@ -1870,7 +1886,7 @@ if budget_input_method == "Manual Entry":
                     min_value=0.0,
                     step=1000.0,
                     format="%.0f",
-                    key=f"budget_{category_key}_{budget_key}",
+                    key=f"budget_{category_key}_{budget_key}_{i}",
                     disabled=is_readonly
                 )
                 if not is_readonly and new_expense_value != old_expense_value:
@@ -1881,6 +1897,17 @@ if budget_input_method == "Manual Entry":
 st.markdown("Budget vs Actual Analysis:")
 
 # Budget values are already defined above
+
+# Ensure we have consistent expense categories for comparison
+default_categories = [
+    "Payroll", "Contractors", "License Fees", "Travel", "Shows", "Associations", 
+    "Marketing", "Company Vehicle", "Grant Writer", "Insurance", "Legal / Professional Fees",
+    "Permitting/Fees/Licensing", "Shared Services", "Consultants/Audit/Tax", "Pritchard Amex", "Contingencies"
+]
+expense_categories = st.session_state.model_data.get("liquidity_data", {}).get("category_order", default_categories)
+
+# Ensure categories are unique to prevent duplicates
+expense_categories = list(dict.fromkeys(expense_categories)) if expense_categories else default_categories
 
 # Create comparison data
 comparison_data = []
@@ -1937,7 +1964,7 @@ comparison_data.append({
 
 # Cash Payments (Expenses) - Dynamic from Liquidity Tab Cash Disbursements
 for category in expense_categories:
-    category_key = category.lower().replace(" ", "_").replace("&", "and").replace("/", "_")
+    category_key = get_category_key(category)
     comparison_data.append({
         "Category": "Cash Payments",
         "Item": category,  # Expense category name from cash disbursements
@@ -1948,8 +1975,8 @@ for category in expense_categories:
     })
 
 # Total Payments
-total_budget_payments = sum([budget_values.get(category.lower().replace(" ", "_").replace("&", "and").replace("/", "_"), 0) for category in expense_categories])
-total_actual_payments = sum([actuals.get(category.lower().replace(" ", "_").replace("&", "and").replace("/", "_"), 0) for category in expense_categories])
+total_budget_payments = sum([budget_values.get(get_category_key(category), 0) for category in expense_categories])
+total_actual_payments = sum([actuals.get(get_category_key(category), 0) for category in expense_categories])
 
 comparison_data.append({
     "Category": "Cash Payments",
@@ -2418,5 +2445,3 @@ st.markdown("""
     <small>© 2025 SHAED - All rights reserved</small>
 </div>
 """, unsafe_allow_html=True)
-
-
