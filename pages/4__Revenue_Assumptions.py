@@ -3,7 +3,16 @@ import pandas as pd
 from datetime import datetime, date
 import time
 import plotly.graph_objects as go
-from database import load_data, save_data, load_data_from_source, save_data_to_source, save_comprehensive_revenue_assumptions_to_database, load_revenue_assumptions_from_database, load_comprehensive_revenue_data_from_database
+from database import (
+    load_data,
+    save_data,
+    load_data_from_source,
+    save_data_to_source,
+    save_comprehensive_revenue_assumptions_to_database,
+    load_revenue_assumptions_from_database,
+    load_comprehensive_revenue_data_from_database,
+    get_supabase_connection_info,
+)
 
 # Configure page
 st.set_page_config(
@@ -28,9 +37,35 @@ with st.sidebar:
             del st.session_state[key]
         st.rerun()
 
+    # Show Supabase connection status
+    try:
+        conn_info = get_supabase_connection_info()
+    except Exception:
+        conn_info = {"mode": "unknown"}
+    status_text = f"DB: {'Configured' if conn_info.get('url_configured') else 'Not Configured'} | Mode: {conn_info.get('mode','').upper()}"
+    st.caption(status_text)
+
 if 'model_data' not in st.session_state:
     st.session_state.model_data = load_data_from_source()
-    
+
+# Ensure revenue assumptions are loaded from Supabase on first visit to this tab
+if not st.session_state.get("revenue_data_initialized", False):
+    try:
+        db_revenue = load_revenue_assumptions_from_database()
+        if isinstance(db_revenue, dict) and db_revenue:
+            keys_to_merge = [
+                'subscription_new_customers', 'subscription_pricing', 'subscription_churn_rates',
+                'implementation_new_customers', 'implementation_pricing',
+                'maintenance_new_customers', 'maintenance_pricing',
+                'transactional_volume', 'transactional_price', 'transactional_referral_fee'
+            ]
+            for k in keys_to_merge:
+                if k in db_revenue:
+                    st.session_state.model_data[k] = db_revenue[k]
+    except Exception:
+        pass
+    finally:
+        st.session_state["revenue_data_initialized"] = True
 
 
 # Custom CSS for SHAED branding
@@ -2703,91 +2738,10 @@ with data_col3:
 
 # Add utility buttons in data_col4 and data_col5
 with data_col4:
-    if st.button("🔄 Reset Connection", use_container_width=True, help="Clear connection cache and reconnect to database"):
-        try:
-            from database import get_supabase_client
-            get_supabase_client.clear()
-            st.success("✅ Connection cache cleared. Try saving again.")
-            st.info("💡 If you're still having issues, refresh the page (F5)")
-        except Exception as e:
-            st.error(f"❌ Error resetting connection: {e}")
+    pass
 
 with data_col5:
-    clear_option = st.selectbox(
-        "Clear Data",
-        ["Select...", "Clear Jan/Feb 2025", "Clear All Revenue Data"],
-        key="clear_data_option",
-        help="Clear test data from database"
-    )
-    
-    if clear_option == "Clear Jan/Feb 2025":
-        try:
-            from database import get_fresh_supabase_client
-            supabase = get_fresh_supabase_client()
-            
-            # Clear Jan/Feb 2025 data from all tables
-            months_to_clear = ['2025-01-01', '2025-02-01']
-            tables_to_clear = ['customer_assumptions', 'pricing_data', 'churn_rates']
-            
-            total_cleared = 0
-            for table in tables_to_clear:
-                for month in months_to_clear:
-                    result = supabase.table(table).delete().eq('year_month', month).execute()
-                    if result.data:
-                        total_cleared += len(result.data)
-            
-            # Clear caches and reload
-            get_supabase_client.clear()
-            load_revenue_assumptions_from_database.clear()
-            load_comprehensive_revenue_data_from_database.clear()
-            
-            st.success(f"✅ Cleared {total_cleared} test records from Jan/Feb 2025!")
-            st.info("💡 Refresh the page to load fresh data.")
-            st.session_state.clear_data_option = "Select..."
-            st.rerun()
-        except Exception as e:
-            st.error(f"❌ Error clearing test data: {e}")
-            
-    elif clear_option == "Clear All Revenue Data":
-        if 'confirm_clear_all' not in st.session_state:
-            st.session_state.confirm_clear_all = False
-            
-        if not st.session_state.confirm_clear_all:
-            st.warning("⚠️ This will delete ALL revenue assumption data from the database!")
-            if st.button("✅ Yes, Clear All Data", use_container_width=True):
-                st.session_state.confirm_clear_all = True
-                st.rerun()
-        else:
-            try:
-                from database import get_fresh_supabase_client
-                supabase = get_fresh_supabase_client()
-                
-                # Clear ALL data from revenue tables
-                tables_to_clear = ['customer_assumptions', 'pricing_data', 'churn_rates']
-                
-                total_cleared = 0
-                for table in tables_to_clear:
-                    # Delete all records from each table
-                    result = supabase.table(table).delete().neq('year_month', '1900-01-01').execute()
-                    if result.data:
-                        total_cleared += len(result.data)
-                
-                # Clear caches and reload
-                get_supabase_client.clear()
-                load_revenue_assumptions_from_database.clear()
-                load_comprehensive_revenue_data_from_database.clear()
-                
-                # Reset session state
-                st.session_state.confirm_clear_all = False
-                st.session_state.clear_data_option = "Select..."
-                
-                st.success(f"✅ Cleared {total_cleared} total records from all revenue tables!")
-                st.info("💡 The page will refresh with empty data.")
-                time.sleep(2)
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Error clearing all data: {e}")
-                st.session_state.confirm_clear_all = False
+    pass
 
 # Footer
 st.markdown("""

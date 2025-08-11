@@ -39,62 +39,133 @@ def log_info(message: str, data=None):
 
 # Initialize Supabase client
 def init_supabase() -> Client:
-    """Initialize Supabase client with connection resilience and SSL error handling"""
+    """Initialize Supabase client preferring the service role key for write access.
+
+    Resolution improvements:
+    - Reads config from Streamlit secrets OR environment variables (SUPABASE_URL, SUPABASE_SERVICE_KEY, SUPABASE_ANON_KEY)
+    - Warns when only the anon key is available (writes may be blocked by RLS)
+    - Retains SSL-aware retry logic and a final fallback path
+    """
     import time
-    
-    max_retries = 5  # Increased retries for SSL issues
-    retry_delay = 2  # Increased initial delay
-    
+
+    def get_supabase_config():
+        url = None
+        service_key = None
+        anon_key = None
+
+        # Streamlit secrets (preferred)
+        try:
+            url = st.secrets.get("SUPABASE_URL", None)  # type: ignore[attr-defined]
+            service_key = st.secrets.get("SUPABASE_SERVICE_KEY", None)  # type: ignore[attr-defined]
+            anon_key = st.secrets.get("SUPABASE_ANON_KEY", None)  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+        # Environment variables (fallback)
+        url = url or os.environ.get("SUPABASE_URL")
+        service_key = service_key or os.environ.get("SUPABASE_SERVICE_KEY")
+        anon_key = anon_key or os.environ.get("SUPABASE_ANON_KEY")
+
+        return url, service_key, anon_key
+
+    max_retries = 5
+    retry_delay = 2
+
     for attempt in range(max_retries):
         try:
-            # Try to get from Streamlit secrets first
-            url = st.secrets["SUPABASE_URL"]
-            key = st.secrets["SUPABASE_ANON_KEY"]
-            supabase = create_client(url, key)
-            
+            url, service_key, anon_key = get_supabase_config()
+            if not url:
+                raise KeyError("SUPABASE_URL is not set in Streamlit secrets or environment variables")
+
+            key_to_use = service_key or anon_key
+            if not key_to_use:
+                raise KeyError("Neither SUPABASE_SERVICE_KEY nor SUPABASE_ANON_KEY is set")
+
+            if service_key is None:
+                # Using anon key → warn about possible RLS restrictions
+                log_warning("Using anon key for Supabase. Writes may be blocked by RLS. Configure SUPABASE_SERVICE_KEY for full access.")
+
+            supabase = create_client(url, key_to_use)
+
             # Test connection with a simple query
             supabase.table('business_segments').select('id').limit(1).execute()
             return supabase
-            
+
         except Exception as e:
             error_msg = str(e)
-            
+
             # Check if it's an SSL error
             if "SSL" in error_msg or "sslv3" in error_msg.lower() or "bad record mac" in error_msg.lower():
                 print(f"SSL error on attempt {attempt + 1}/{max_retries}: {error_msg[:50]}...")
-                
+
                 # Clear cached client if it exists
                 try:
                     get_supabase_client.clear()
-                except:
+                except Exception:
                     pass
-                
+
                 if attempt < max_retries - 1:
                     print(f"Retrying in {retry_delay} seconds...")
                     time.sleep(retry_delay)
-                    retry_delay = min(retry_delay * 1.5, 10)  # Cap at 10 seconds
+                    retry_delay = min(retry_delay * 1.5, 10)
                     continue
             elif attempt < max_retries - 1:
                 time.sleep(retry_delay)
-                retry_delay *= 2  # Exponential backoff for non-SSL errors
+                retry_delay = min(retry_delay * 2, 10)
                 continue
-            
-            # Fallback to hardcoded values
+
+            # Final fallback (hardcoded anon) — may be blocked by RLS
             try:
                 print("Trying fallback connection...")
                 url = "https://gdltscxgbhgybppbngeo.supabase.co"
                 key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdkbHRzY3hnYmhneWJwcGJuZ2VvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTMwOTQ5NzAsImV4cCI6MjA2ODY3MDk3MH0.0wmAJx0zTrHuTvk1ihIdltEN-7sQBbR5BpVQKDvYPlQ"
                 supabase = create_client(url, key)
-                
+
                 # Test connection
                 supabase.table('business_segments').select('id').limit(1).execute()
                 print("Fallback connection successful")
+                log_warning("Connected to Supabase using fallback anon key. Writes may fail due to RLS.")
                 return supabase
-                
+
             except Exception as fallback_error:
                 print(f"Fallback also failed: {str(fallback_error)[:50]}...")
-                # If all else fails, return None
                 return None
+
+def get_supabase_connection_info() -> Dict[str, Any]:
+    """Return connection configuration info for diagnostics (no secrets exposed)."""
+    url = None
+    has_service_key = False
+    has_anon_key = False
+    try:
+        try:
+            url = st.secrets.get("SUPABASE_URL", None)  # type: ignore[attr-defined]
+            has_service_key = bool(st.secrets.get("SUPABASE_SERVICE_KEY", None))  # type: ignore[attr-defined]
+            has_anon_key = bool(st.secrets.get("SUPABASE_ANON_KEY", None))  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        url = url or os.environ.get("SUPABASE_URL")
+        has_service_key = has_service_key or bool(os.environ.get("SUPABASE_SERVICE_KEY"))
+        has_anon_key = has_anon_key or bool(os.environ.get("SUPABASE_ANON_KEY"))
+    except Exception:
+        pass
+
+    mode = "service" if has_service_key else ("anon" if has_anon_key else "none")
+    return {"url_configured": bool(url), "mode": mode, "has_service_key": has_service_key, "has_anon_key": has_anon_key}
+
+def clear_data_caches():
+    """Clear cached loaders so UI can force-refresh from Supabase."""
+    try:
+        load_revenue_assumptions_from_database.clear()
+    except Exception:
+        pass
+    try:
+        load_comprehensive_revenue_data_from_database.clear()
+    except Exception:
+        pass
+    try:
+        load_data_from_source.clear()
+    except Exception:
+        pass
 
 @st.cache_resource
 def get_supabase_client() -> Client:
@@ -465,16 +536,22 @@ def save_payroll_data_to_database(data: Dict[str, Any]) -> bool:
         supabase = get_supabase_client()
 
         
-        # IMPORTANT: Use upsert operations to preserve existing data and avoid foreign key violations
-        # No need to delete existing data - upsert will handle updates safely
+        # IMPORTANT: Use upsert operations when schema supports it. Handle legacy schemas defensively.
+        # Detect employees table identifier shape
+        employees_table_uses_employee_id = True
+        try:
+            probe = supabase.table('employees').select("*").limit(1).execute()
+            sample_row = (probe.data or [{}])[0]
+            employees_table_uses_employee_id = 'employee_id' in sample_row
+        except Exception:
+            employees_table_uses_employee_id = True
         
         # 1. Save employees to employees table using UPSERT to avoid deletion issues
         if "payroll_data" in data and "employees" in data["payroll_data"]:
             employee_records = []
             for emp_id, emp_data in data["payroll_data"]["employees"].items():
                 if emp_data.get("name", "").strip():  # Only save if name exists
-                    employee_records.append({
-                        'employee_id': emp_id,
+                    base_record = {
                         'name': emp_data.get('name', ''),
                         'title': emp_data.get('title', ''),
                         'department': emp_data.get('department', 'Opex'),
@@ -485,37 +562,122 @@ def save_payroll_data_to_database(data: Dict[str, Any]) -> bool:
                         'hire_date': emp_data.get('hire_date'),
                         'termination_date': emp_data.get('termination_date'),
                         'is_active': emp_data.get('termination_date') is None
-                    })
-            
+                    }
+                    if employees_table_uses_employee_id:
+                        base_record['employee_id'] = str(emp_id)
+                    else:
+                        # We'll update by integer primary key if possible; for new rows, we'll insert without id
+                        base_record['__legacy_pk__'] = str(emp_id)
+                    employee_records.append(base_record)
+
             if employee_records:
-                # Use upsert to safely update/insert employees without losing data
-                supabase.table('employees').upsert(employee_records, on_conflict='employee_id').execute()
+                if employees_table_uses_employee_id:
+                    # Use upsert on logical key
+                    supabase.table('employees').upsert(
+                        [{k: v for k, v in rec.items() if k != '__legacy_pk__'} for rec in employee_records],
+                        on_conflict='employee_id'
+                    ).execute()
+                else:
+                    # Legacy table with serial id: update existing rows by id when provided; insert new otherwise
+                    to_update = []
+                    to_insert = []
+                    for rec in employee_records:
+                        legacy_pk = rec.get('__legacy_pk__', '')
+                        payload = {k: v for k, v in rec.items() if k not in ('__legacy_pk__', 'employee_id')}
+                        if legacy_pk.isdigit():
+                            to_update.append((int(legacy_pk), payload))
+                        else:
+                            to_insert.append(payload)
+                    for pk, payload in to_update:
+                        try:
+                            supabase.table('employees').update(payload).eq('id', pk).execute()
+                        except Exception:
+                            # Continue best-effort
+                            continue
+                    if to_insert:
+                        try:
+                            supabase.table('employees').insert(to_insert).execute()
+                        except Exception:
+                            pass
         
         # 2. Save employee bonuses AFTER employees are saved
         if "payroll_data" in data and "employee_bonuses" in data["payroll_data"]:
+            # Build a reliable mapping from employee name -> employee_id (string key used in our model)
+            employees = data.get("payroll_data", {}).get("employees", {})
+            employee_name_to_id_map = {}
+            for emp_id, emp in employees.items():
+                emp_name = str(emp.get("name", "")).strip()
+                if emp_name and emp_id:
+                    # First write wins to keep deterministic mapping
+                    employee_name_to_id_map.setdefault(emp_name, emp_id)
+
+            # Prepare bonus records with correct employee_id and validate amounts
             bonus_records = []
-            for bonus_id, bonus_data in data["payroll_data"]["employee_bonuses"].items():
-                if bonus_data.get("employee_name", "").strip() and bonus_data.get("month", "").strip():
-                    try:
-                        year_month = datetime.strptime(bonus_data["month"], "%b %Y").strftime("%Y-%m-%d")
-                        bonus_records.append({
-                            'employee_id': bonus_data.get("employee_name", "")[:20],  # Use name as ID, truncated
-                            'year_month': year_month,
-                            'bonus_type': bonus_data.get('bonus_type', 'performance'),
-                            'bonus_amount': float(bonus_data.get('bonus_amount', 0)),
-                            'bonus_reason': f'Bonus for {bonus_data.get("month", "")}',
-                            'approved_by': 'System',
-                            'bonus_date': year_month
-                        })
-                    except:
-                        continue
-            
+            for _, bonus_data in data["payroll_data"].get("employee_bonuses", {}).items():
+                employee_name = str(bonus_data.get("employee_name", "")).strip()
+                month_label = str(bonus_data.get("month", "")).strip()
+                bonus_amount = float(bonus_data.get('bonus_amount', 0) or 0)
+
+                # Skip invalid or zero-amount bonuses
+                if not employee_name or not month_label or bonus_amount <= 0:
+                    continue
+
+                # Resolve to employee identifier; skip if not resolvable
+                resolved_emp_id = employee_name_to_id_map.get(employee_name)
+                if not resolved_emp_id:
+                    continue
+
+                try:
+                    year_month = datetime.strptime(month_label, "%b %Y").strftime("%Y-%m-%d")
+                except Exception:
+                    continue
+
+                # Cast identifier for legacy integer FK
+                employee_id_value = (
+                    int(resolved_emp_id) if (not employees_table_uses_employee_id and str(resolved_emp_id).isdigit()) else str(resolved_emp_id)
+                )
+
+                bonus_records.append({
+                    'employee_id': employee_id_value,
+                    'year_month': year_month,
+                    'bonus_type': bonus_data.get('bonus_type', 'performance'),
+                    'bonus_amount': bonus_amount,
+                    'bonus_reason': f'Bonus for {month_label}',
+                    'approved_by': 'System',
+                    'bonus_date': year_month
+                })
+
+            # Best-effort cleanup of any historical invalid bonus rows where employee_id doesn't match an existing employee_id
+            try:
+                existing_emp_ids = set(employees.keys())
+                # Fetch a small sample of bonus rows to detect invalid references (bounded for safety)
+                invalid_bonus_rows = []
+                bonus_resp = supabase.table('employee_bonuses').select('id, employee_id').limit(10000).execute()
+                for r in bonus_resp.data or []:
+                    emp_ref = r.get('employee_id')
+                    if emp_ref and emp_ref not in existing_emp_ids:
+                        invalid_bonus_rows.append(r.get('id'))
+                # Delete invalid rows in small batches
+                if invalid_bonus_rows:
+                    # Supabase Python client supports .in_ for filters
+                    supabase.table('employee_bonuses').delete().in_('id', invalid_bonus_rows).execute()
+            except Exception:
+                # Non-fatal cleanup step; continue with proper upsert below
+                pass
+
             if bonus_records:
                 try:
-                    # Use upsert to safely update/insert bonuses
-                    supabase.table('employee_bonuses').upsert(bonus_records, on_conflict='employee_id,year_month,bonus_type').execute()
-                except Exception as e2:
-                    pass  # Silent error handling
+                    supabase.table('employee_bonuses').upsert(
+                        bonus_records,
+                        on_conflict='employee_id,year_month,bonus_type'
+                    ).execute()
+                except Exception:
+                    # Fallback: insert row-by-row (best effort)
+                    for rec in bonus_records:
+                        try:
+                            supabase.table('employee_bonuses').insert(rec).execute()
+                        except Exception:
+                            continue
         
         # 3. Save pay periods
         if "payroll_data" in data and "pay_periods" in data["payroll_data"]:
@@ -1087,8 +1249,14 @@ def load_revenue_assumptions_from_database() -> Dict[str, Any]:
                 if segment_name in all_stakeholders and data_key in revenue_data:
                     revenue_data[data_key][segment_name][month_str] = record['value']
         
-        # Load pricing data - explicitly set high limit  
-        pricing_response = supabase.table('pricing_data').select("*").limit(10000).execute()
+        # Load pricing data - explicitly set high limit and order by date
+        pricing_response = (
+            supabase.table('pricing_data')
+            .select("*")
+            .order('year_month')
+            .limit(10000)
+            .execute()
+        )
         for record in pricing_response.data:
             segment_name = segment_mapping.get(record['business_segment_id'], 'Unknown')
             service_type = record['service_type']
@@ -1125,7 +1293,13 @@ def load_revenue_assumptions_from_database() -> Dict[str, Any]:
                     revenue_data[price_key][segment_name][month_str] = record['price_per_unit']
         
         # Load churn rates - explicitly set high limit
-        churn_response = supabase.table('churn_rates').select("*").limit(10000).execute()
+        churn_response = (
+            supabase.table('churn_rates')
+            .select("*")
+            .order('year_month')
+            .limit(10000)
+            .execute()
+        )
         for record in churn_response.data:
             segment_name = segment_mapping.get(record['business_segment_id'], 'Unknown')
             service_type = record['service_type']
@@ -1178,23 +1352,31 @@ def load_payroll_data_from_database() -> Dict[str, Any]:
             "payroll_config": {"payroll_tax_percentage": 10.0}  # Changed from 23.0 to 10.0
         }
         
-        # Load employees
+        # Load employees (supports both schemas: with 'employee_id' or legacy integer 'id')
         try:
             employees_response = supabase.table('employees').select("*").limit(10000).execute()
-            for emp in employees_response.data:
-                payroll_data["employees"][emp['employee_id']] = {
-                    'name': emp['name'],
+            rows = employees_response.data or []
+            # Detect identifier field
+            uses_employee_id = False
+            if len(rows) > 0:
+                sample = rows[0]
+                uses_employee_id = 'employee_id' in sample
+            for emp in rows:
+                key = str(emp['employee_id']) if uses_employee_id and 'employee_id' in emp else str(emp.get('id'))
+                if not key or key == 'None':
+                    continue
+                payroll_data["employees"][key] = {
+                    'name': emp.get('name', ''),
                     'title': emp.get('title', ''),
                     'department': emp.get('department', 'Opex'),
                     'pay_type': emp.get('pay_type', 'Salary'),
-                    'annual_salary': float(emp.get('annual_salary', 0)),
-                    'hourly_rate': float(emp.get('hourly_rate', 0)),
-                    'weekly_hours': float(emp.get('weekly_hours', 40)),
+                    'annual_salary': float(emp.get('annual_salary', 0) or 0),
+                    'hourly_rate': float(emp.get('hourly_rate', 0) or 0),
+                    'weekly_hours': float(emp.get('weekly_hours', 40) or 40),
                     'hire_date': emp.get('hire_date'),
                     'termination_date': emp.get('termination_date')
                 }
-        except Exception as e:
-            pass
+        except Exception:
             pass
         
         # Load contractors (if table exists)
@@ -1214,24 +1396,26 @@ def load_payroll_data_from_database() -> Dict[str, Any]:
             pass
             pass
         
-        # Load employee bonuses
+        # Load employee bonuses (map to employee name; support legacy integer employee_id)
         try:
             bonuses_response = supabase.table('employee_bonuses').select("*").limit(10000).execute()
-            employee_id_to_name = {emp_id: emp_data['name'] for emp_id, emp_data in payroll_data["employees"].items()}
-            
-            for bonus in bonuses_response.data:
-                bonus_id = str(bonus.get('id'))
-                month_str = datetime.strptime(bonus['year_month'], "%Y-%m-%d").strftime("%b %Y")
-                employee_name = employee_id_to_name.get(bonus['employee_id'], '')
-                
-                if employee_name:
+            employee_id_to_name = {str(emp_id): emp_data['name'] for emp_id, emp_data in payroll_data["employees"].items()}
+            for bonus in bonuses_response.data or []:
+                try:
+                    bonus_id = str(bonus.get('id'))
+                    month_str = datetime.strptime(bonus['year_month'], "%Y-%m-%d").strftime("%b %Y")
+                    emp_ref = str(bonus.get('employee_id')) if bonus.get('employee_id') is not None else ''
+                    employee_name = employee_id_to_name.get(emp_ref, '')
+                    if not employee_name:
+                        continue
                     payroll_data["employee_bonuses"][bonus_id] = {
                         'employee_name': employee_name,
-                        'bonus_amount': float(bonus['bonus_amount']),
+                        'bonus_amount': float(bonus.get('bonus_amount', 0) or 0),
                         'month': month_str
                     }
-        except Exception as e:
-            pass
+                except Exception:
+                    continue
+        except Exception:
             pass
         
         # Load pay periods
@@ -1415,12 +1599,12 @@ def save_liquidity_data_to_database(data: Dict[str, Any]) -> bool:
             st.error("No liquidity_data found in data structure")
             return False
         
-        # Save starting balance to model_settings
+        # Save starting balance to model_settings (store as JSON number)
         starting_balance = liquidity_data.get("starting_balance", 0)
         supabase.table('model_settings').upsert({
             'setting_category': 'liquidity',
             'setting_name': 'starting_balance',
-            'setting_value': str(float(starting_balance)),
+            'setting_value': json.dumps(float(starting_balance)),
             'description': 'Starting cash balance for liquidity model',
             'data_type': 'number'
         }, on_conflict='setting_category,setting_name').execute()
@@ -1588,7 +1772,16 @@ def load_liquidity_data_from_database() -> Dict[str, Any]:
         try:
             settings_response = supabase.table('model_settings').select('setting_value').eq('setting_category', 'liquidity').eq('setting_name', 'starting_balance').execute()
             if settings_response.data:
-                liquidity_data["starting_balance"] = float(settings_response.data[0]['setting_value'])
+                raw_value = settings_response.data[0]['setting_value']
+                # Handle jsonb that may come back as str or numeric
+                if isinstance(raw_value, str):
+                    try:
+                        parsed = json.loads(raw_value)
+                    except Exception:
+                        parsed = raw_value
+                else:
+                    parsed = raw_value
+                liquidity_data["starting_balance"] = float(parsed)
             else:
                 liquidity_data["starting_balance"] = 1773162  # Default value
         except Exception as e:
@@ -1659,7 +1852,7 @@ def save_starting_balance_to_database(starting_balance: float) -> bool:
         supabase.table('model_settings').upsert({
             'setting_category': 'liquidity',
             'setting_name': 'starting_balance',
-            'setting_value': str(float(starting_balance)),
+            'setting_value': json.dumps(float(starting_balance)),
             'description': 'Starting cash balance for liquidity model',
             'data_type': 'number'
         }, on_conflict='setting_category,setting_name').execute()
@@ -1691,6 +1884,11 @@ def save_comprehensive_revenue_assumptions_to_database(data: Dict[str, Any]) -> 
         # Clear cache to ensure fresh data on next load
         load_revenue_assumptions_from_database.clear()
         load_comprehensive_revenue_data_from_database.clear()
+        try:
+            # Also clear the top-level loader cache so other pages refresh correctly
+            load_data_from_source.clear()
+        except Exception:
+            pass
         
         # Clear connection cache after save to prevent stale connections
         get_supabase_client.clear()

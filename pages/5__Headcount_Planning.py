@@ -2,7 +2,27 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date
 import uuid
-from database import load_data, save_data, load_data_from_source, save_data_to_source
+from database import (
+    load_data,
+    save_data,
+    load_data_from_source,
+    save_data_to_source,
+    save_payroll_data_to_database,
+    get_supabase_connection_info,
+    clear_all_data_cache,
+)
+
+# Ensure model data is present and connection info available
+if 'model_data' not in st.session_state or not isinstance(st.session_state.model_data, dict):
+    try:
+        st.session_state.model_data = load_data_from_source()
+    except Exception:
+        st.session_state.model_data = {}
+
+try:
+    conn_info = get_supabase_connection_info()
+except Exception:
+    conn_info = {"mode": "unknown"}
 
 # Configure page
 st.set_page_config(
@@ -385,8 +405,26 @@ st.markdown("""
 
 # Data persistence functions are now imported from database.py
 
-if 'model_data' not in st.session_state:
-    st.session_state.model_data = load_data_from_source()
+# Ensure model data is present and populated (payroll-only to improve performance)
+if 'model_data' not in st.session_state or not isinstance(st.session_state.model_data, dict):
+    st.session_state.model_data = {}
+
+# If payroll data missing or empty, load it explicitly (avoid loading full model to keep page fast)
+try:
+    if (
+        "payroll_data" not in st.session_state.model_data
+        or not isinstance(st.session_state.model_data["payroll_data"], dict)
+        or len(st.session_state.model_data["payroll_data"]) == 0
+    ):
+        from database import load_payroll_data_from_database
+        _loaded_payroll = load_payroll_data_from_database()
+        if isinstance(_loaded_payroll, dict) and _loaded_payroll:
+            st.session_state.model_data["payroll_data"] = _loaded_payroll
+        else:
+            st.session_state.model_data["payroll_data"] = {}
+except Exception:
+    if "payroll_data" not in st.session_state.model_data:
+        st.session_state.model_data["payroll_data"] = {}
 
 # Generate months from 2025-2030
 def get_months_2025_2030():
@@ -564,9 +602,17 @@ def calculate_monthly_contractor_costs():
 # Initialize payroll configuration
 def initialize_payroll_config():
     """Initialize payroll configuration data - preserve existing data loaded from database"""
-    # Initialize payroll_data structure if not exists
-    if "payroll_data" not in st.session_state.model_data:
-        st.session_state.model_data["payroll_data"] = {}
+    # Initialize payroll_data structure if not exists and try loading from database first
+    if "payroll_data" not in st.session_state.model_data or not st.session_state.model_data["payroll_data"]:
+        try:
+            from database import load_payroll_data_from_database
+            loaded_payroll = load_payroll_data_from_database()
+            if isinstance(loaded_payroll, dict) and loaded_payroll:
+                st.session_state.model_data["payroll_data"] = loaded_payroll
+            else:
+                st.session_state.model_data["payroll_data"] = {}
+        except Exception:
+            st.session_state.model_data["payroll_data"] = {}
     
     # Initialize all payroll_data sub-structures ONLY if they don't exist
     # This preserves data loaded from database
@@ -697,12 +743,41 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-
-
+# Connection & reload controls
+try:
+    from database import get_supabase_connection_info, load_payroll_data_from_database
+    conn_info = get_supabase_connection_info()
+    status_text = f"DB: {'Configured' if conn_info.get('url_configured') else 'Not Configured'} | Mode: {conn_info.get('mode').upper()}"
+    st.caption(status_text)
+    if st.button("Reload from Supabase", use_container_width=False):
+        # Reload only payroll to avoid heavy global reloads
+        st.session_state.model_data.setdefault("payroll_data", {})
+        st.session_state.model_data["payroll_data"] = load_payroll_data_from_database()
+        st.experimental_rerun()
+except Exception:
+    pass
 # Initialize data
 initialize_payroll_config()
 
 
+
+# If nothing loaded, attempt a one-time forced reload from Supabase caches
+try:
+    if (
+        "payroll_data" not in st.session_state.model_data
+        or not isinstance(st.session_state.model_data["payroll_data"], dict)
+        or len(st.session_state.model_data["payroll_data"].get("employees", {})) == 0
+    ) and not st.session_state.get("headcount_auto_refetched", False):
+        from database import clear_all_data_cache, load_data_from_source
+        try:
+            clear_all_data_cache()
+        except Exception:
+            pass
+        st.session_state.model_data = load_data_from_source()
+        st.session_state["headcount_auto_refetched"] = True
+        st.experimental_rerun()
+except Exception:
+    pass
 
 # Helper function to create employee management table
 def create_employee_table():
@@ -764,6 +839,26 @@ def create_employee_table():
     # Sort by hire date
     if not df.empty:
         df = df.sort_values('Hire Date', na_position='last')
+    else:
+        # Provide an empty structured row so users can start adding employees
+        df = pd.DataFrame({
+            "Employee Name": [""],
+            "Title": [""],
+            "Department": ["Opex"],
+            "Pay Type": ["Salary"],
+            "Pay Amount": [0.0],
+            "Weekly Hours": [40.0],
+            "Hire Date": [date(2025, 1, 1)],
+            "Termination Date": [None],
+            "Status": [""]
+        })
+    if df.empty:
+        # If no employees loaded, hint about DB mode
+        try:
+            if conn_info.get('mode') != 'service':
+                st.info("No employees loaded. Check database configuration and permissions (service key recommended).")
+        except Exception:
+            pass
     
     # Column configuration
     column_config = {
@@ -878,42 +973,13 @@ def create_employee_table():
     
     # Save to database immediately after updating session state
     try:
-        from database import init_supabase
-        
-        supabase = init_supabase()
-        if supabase:
-            # Get current employees from session state
-            employees = st.session_state.model_data["payroll_data"]["employees"]
-            
-            # Prepare employee records for database
-            employee_records = []
-            for emp_id, emp_data in employees.items():
-                if emp_data.get("name", "").strip():  # Only save if name exists
-                    employee_records.append({
-                        'employee_id': emp_id,
-                        'name': emp_data.get('name', ''),
-                        'title': emp_data.get('title', ''),
-                        'department': emp_data.get('department', 'Opex'),
-                        'pay_type': emp_data.get('pay_type', 'Salary'),
-                        'weekly_hours': float(emp_data.get('weekly_hours', 40)),
-                        'annual_salary': float(emp_data.get('annual_salary', 0)),
-                        'hourly_rate': float(emp_data.get('hourly_rate', 0)),
-                        'hire_date': emp_data.get('hire_date'),
-                        'termination_date': emp_data.get('termination_date'),
-                        'is_active': emp_data.get('termination_date') is None
-                    })
-            
-            if employee_records:
-                # Use upsert to safely update/insert employees
-                result = supabase.table('employees').upsert(employee_records, on_conflict='employee_id').execute()
-                st.success(f"✅ Successfully saved {len(employee_records)} employee(s) to database")
-            else:
-                st.info("ℹ️ No employee data to save")
-                
+        from database import save_payroll_data_to_database
+        if save_payroll_data_to_database(st.session_state.model_data):
+            st.success("✅ Employees saved")
+        else:
+            st.warning("⚠️ Employees not saved. Check database connection and schema.")
     except Exception as e:
-        # Show error message to user so they know what went wrong
-        st.error(f"❌ Error saving employee data to database: {str(e)}")
-        st.info("💡 Tip: Check your database connection and ensure the 'employees' table exists with the correct schema.")
+        st.error(f"❌ Error saving employees: {str(e)}")
     
     return edited_df
 
@@ -948,23 +1014,20 @@ def create_bonus_table():
     bonus_ids = []
     
     for bonus_id, bonus_data in bonuses.items():
-        bonus_ids.append(bonus_id)
-        
         # Map employee_id back to employee name for display
         employee_reference = bonus_data.get("employee_name", "")
         display_name = ""
-        
-        # Handle both old format (employee names) and new format (employee IDs)
+
+        # Resolve to known active employee; skip if not resolvable
         if employee_reference in employee_id_to_name:
-            # This is an employee_id, convert to name for display
             display_name = employee_id_to_name[employee_reference]
         elif employee_reference in employee_name_to_id:
-            # This is already an employee name
             display_name = employee_reference
         else:
-            # Invalid reference, use first active employee as default
-            display_name = active_employees[0] if active_employees else ""
-        
+            # Skip invalid/unresolvable entries to avoid random assignment
+            continue
+
+        bonus_ids.append(bonus_id)
         table_data.append({
             "Employee Name": display_name,
             "Bonus Amount": bonus_data.get("bonus_amount", 0),
@@ -974,13 +1037,13 @@ def create_bonus_table():
     # Create DataFrame
     df = pd.DataFrame(table_data)
     
-    # If no bonuses exist, create empty row with first active employee selected
+    # Do not auto-generate any bonus rows; only show existing bonuses
+    # If empty, display an empty editable table so users can add rows manually
     if df.empty:
-        default_employee = active_employees[0] if active_employees else ""
         df = pd.DataFrame({
-            "Employee Name": [default_employee],
-            "Bonus Amount": [0],
-            "Month": ["Jan 2025"]
+            "Employee Name": pd.Series(dtype=str),
+            "Bonus Amount": pd.Series(dtype=float),
+            "Month": pd.Series(dtype=str)
         })
     
     # Column configuration
@@ -1057,63 +1120,13 @@ def create_bonus_table():
     
     # Save to database immediately after updating session state
     try:
-        from database import init_supabase
-        from datetime import datetime
-        
-        supabase = init_supabase()
-        if supabase:
-            # Get current employee bonuses from session state
-            employee_bonuses = st.session_state.model_data["payroll_data"]["employee_bonuses"]
-            
-            # Create employee name to ID mapping from current employees
-            employees = st.session_state.model_data["payroll_data"]["employees"]
-            name_to_id_mapping = {}
-            for emp_id, emp_data in employees.items():
-                emp_name = emp_data.get("name", "")
-                if emp_name:
-                    name_to_id_mapping[emp_name] = emp_id
-            
-            # Prepare bonus records for database
-            bonus_records = []
-            for bonus_id, bonus_data in employee_bonuses.items():
-                if bonus_data.get("employee_name", "").strip() and bonus_data.get("month", "").strip():
-                    try:
-                        year_month = datetime.strptime(bonus_data["month"], "%b %Y").strftime("%Y-%m-%d")
-                        # Map employee name to employee_id for database storage
-                        employee_name = bonus_data.get("employee_name", "")
-                        employee_id = name_to_id_mapping.get(employee_name)
-                        
-                        # Only save if we have a valid employee_id mapping
-                        if employee_id:
-                            bonus_records.append({
-                                'employee_id': employee_id,
-                                'year_month': year_month,
-                                'bonus_type': 'performance',
-                                'bonus_amount': float(bonus_data.get('bonus_amount', 0)),
-                                'bonus_reason': f'Bonus for {bonus_data.get("month", "")}',
-                                'approved_by': 'System',
-                                'bonus_date': year_month
-                            })
-                    except:
-                        continue
-            
-            # First, clear existing bonuses for all employees to handle deletions
-            all_employee_ids = list(name_to_id_mapping.values())
-            if all_employee_ids:
-                # Delete existing bonuses for all current employees
-                supabase.table('employee_bonuses').delete().in_('employee_id', all_employee_ids).execute()
-            
-            if bonus_records:
-                # Insert new bonus records
-                result = supabase.table('employee_bonuses').insert(bonus_records).execute()
-                st.success(f"✅ Successfully saved {len(bonus_records)} bonus(es) to database")
-            else:
-                st.info("ℹ️ No bonus data to save")
-                
+        from database import save_payroll_data_to_database
+        if save_payroll_data_to_database(st.session_state.model_data):
+            st.success("✅ Bonuses saved")
+        else:
+            st.warning("⚠️ Bonuses not saved. Check database connection and schema.")
     except Exception as e:
-        # Show error message to user so they know what went wrong
-        st.error(f"❌ Error saving bonus data to database: {str(e)}")
-        st.info("💡 Tip: Check your database connection and ensure the 'employee_bonuses' table exists with the correct schema.")
+        st.error(f"❌ Error saving bonuses: {str(e)}")
     
     return edited_df
 
@@ -1303,42 +1316,15 @@ def create_contractor_table():
         
         st.session_state.model_data["payroll_data"]["contractors"][contractor_id] = contractor_data
     
-    # Save to database immediately after updating session state
+    # Save to database immediately after updating session state (centralized save with schema handling)
     try:
-        from database import init_supabase
-        
-        supabase = init_supabase()
-        if supabase:
-            # Get current contractors from session state
-            contractors = st.session_state.model_data["payroll_data"]["contractors"]
-            
-            # Prepare contractor records for database
-            contractor_records = []
-            for contractor_id, contractor_data in contractors.items():
-                if contractor_data.get("vendor", "").strip():  # Only save if vendor exists
-                    contractor_records.append({
-                        'contractor_id': contractor_id,
-                        'vendor': contractor_data.get('vendor', ''),
-                        'role': contractor_data.get('role', ''),
-                        'department': contractor_data.get('department', 'Product Development'),
-                        'resources': float(contractor_data.get('resources', 0)),
-                        'hourly_rate': float(contractor_data.get('hourly_rate', 0)),
-                        'start_date': contractor_data.get('start_date'),
-                        'end_date': contractor_data.get('end_date'),
-                        'is_active': contractor_data.get('end_date') is None
-                    })
-            
-            if contractor_records:
-                # Use upsert to safely update/insert contractors
-                result = supabase.table('contractors').upsert(contractor_records, on_conflict='contractor_id').execute()
-                st.success(f"✅ Successfully saved {len(contractor_records)} contractor(s) to database")
-            else:
-                st.info("ℹ️ No contractor data to save")
-                
+        from database import save_payroll_data_to_database
+        if save_payroll_data_to_database(st.session_state.model_data):
+            st.success("✅ Contractors saved")
+        else:
+            st.warning("⚠️ Contractors not saved. Check database connection and schema.")
     except Exception as e:
-        # Show error message to user so they know what went wrong
-        st.error(f"❌ Error saving contractor data to database: {str(e)}")
-        st.info("💡 Tip: Check your database connection and ensure the 'contractors' table exists with the correct schema.")
+        st.error(f"❌ Error saving contractors: {str(e)}")
     
     return edited_df
 
